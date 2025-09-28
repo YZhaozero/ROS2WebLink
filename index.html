@@ -30,6 +30,7 @@
     }
     canvas {
       display: block;
+      cursor: crosshair;
     }
     .output-container {
       margin-top: 20px;
@@ -41,6 +42,47 @@
       border-radius: 4px;
       white-space: pre-wrap;
     }
+    .input-group {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f9f9f9;
+    }
+    .input-group label {
+      display: inline-block;
+      width: 100px;
+      margin-right: 10px;
+    }
+    .input-group input {
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      margin-right: 10px;
+    }
+    .status-info {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #e9ecef;
+    }
+    .pose-list {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f8f9fa;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .pose-item {
+      margin: 5px 0;
+      padding: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      background-color: white;
+    }
   </style>
 </head>
 <body>
@@ -49,15 +91,53 @@
   <div class="controls">
     <button onclick="getMap()">获取地图</button>
     <button onclick="getStatus()">获取状态</button>
-    <button onclick="sendGoal()">发送导航目标</button>
-    <button onclick="sendCmdVel()">发送速度指令</button>
     <button onclick="startAutoUpdate()">开始自动更新</button>
     <button onclick="stopAutoUpdate()">停止自动更新</button>
+    <button onclick="capturePose()">打点记录位姿</button>
+    <button onclick="clearPoses()">清除记录</button>
   </div>
 
+  <!-- 导航目标输入 -->
+  <div class="input-group">
+    <h3>导航目标设置</h3>
+    <label>X坐标:</label>
+    <input type="number" id="goalX" step="0.1" value="5.0">
+    <label>Y坐标:</label>
+    <input type="number" id="goalY" step="0.1" value="3.0">
+    <label>角度:</label>
+    <input type="number" id="goalTheta" step="0.1" value="1.57">
+    <button onclick="sendGoal()">发送导航目标</button>
+    <div id="goalRange" style="margin-top: 10px; color: #666;"></div>
+  </div>
+
+  <!-- 速度指令输入 -->
+  <div class="input-group">
+    <h3>速度指令设置</h3>
+    <label>线速度X:</label>
+    <input type="number" id="velX" step="0.1" value="0.2">
+    <label>线速度Y:</label>
+    <input type="number" id="velY" step="0.1" value="0.0">
+    <label>角速度:</label>
+    <input type="number" id="velTheta" step="0.1" value="0.1">
+    <button onclick="sendCmdVel()">发送速度指令</button>
+  </div>
+
+  <!-- 机器人状态显示 -->
+  <div class="status-info">
+    <h3>机器人状态</h3>
+    <div id="robotStatus">等待状态更新...</div>
+  </div>
+
+  <!-- 地图容器 -->
   <div class="map-container">
     <h3>栅格地图</h3>
-    <canvas id="mapCanvas" width="600" height="400"></canvas>
+    <canvas id="mapCanvas" width="800" height="600"></canvas>
+  </div>
+
+  <!-- 位姿记录列表 -->
+  <div class="pose-list">
+    <h3>位姿记录</h3>
+    <div id="poseList">暂无记录</div>
   </div>
 
   <div class="output-container">
@@ -68,6 +148,8 @@
   <script>
     let autoUpdateInterval = null;
     let mapData = null;
+    let robotPose = {x: 0, y: 0, theta: 0};
+    let poseRecords = [];
 
     function log(data) {
       document.getElementById("output").innerText = JSON.stringify(data, null, 2);
@@ -81,6 +163,7 @@
           if (data.Result === 0) {
             mapData = data;
             drawMap(data);
+            updateGoalRange();
           } else {
             console.error("获取地图失败:", data.Error);
           }
@@ -88,6 +171,25 @@
         .catch(error => {
           console.error("请求地图失败:", error);
           log({error: "请求地图失败: " + error.message});
+        });
+    }
+
+    function getStatus() {
+      fetch("http://localhost:8000/api/robot/status")
+        .then(res => res.json())
+        .then(data => {
+          log(data);
+          updateRobotStatus(data);
+          if (data.localization) {
+            robotPose = {
+              x: data.localization.x,
+              y: data.localization.y,
+              theta: data.localization.theta
+            };
+            if (mapData) {
+              drawMap(mapData);
+            }
+          }
         });
     }
 
@@ -147,6 +249,7 @@
         }
       }
       
+      // 绘制网格线
       ctx.strokeStyle = "#E0E0E0";
       ctx.lineWidth = 0.5;
       for (let x = 0; x <= mapInfo.width; x++) {
@@ -162,6 +265,12 @@
         ctx.stroke();
       }
       
+      // 绘制机器人位姿（三角形）
+      drawRobot(ctx, robotPose, offsetX, offsetY, scale, mapInfo);
+      
+      // 绘制记录的位姿点
+      drawPoseRecords(ctx, offsetX, offsetY, scale, mapInfo);
+      
       // 显示地图信息
       ctx.fillStyle = "#333";
       ctx.font = "12px Arial";
@@ -170,39 +279,188 @@
       ctx.fillText(`原点: (${mapInfo.origin_x}, ${mapInfo.origin_y})`, 10, canvas.height - 10);
     }
 
-    function getStatus() {
-      fetch("http://localhost:8000/api/robot/status")
-        .then(res => res.json())
-        .then(data => log(data));
+    function drawRobot(ctx, pose, offsetX, offsetY, scale, mapInfo) {
+      // 将世界坐标转换为地图坐标
+      const mapX = (pose.x - mapInfo.origin_x) / mapInfo.resolution;
+      const mapY = (pose.y - mapInfo.origin_y) / mapInfo.resolution;
+      
+      // 转换为画布坐标
+      const canvasX = offsetX + mapX * scale;
+      const canvasY = offsetY + mapY * scale;
+      
+      // 绘制机器人三角形
+      ctx.save();
+      ctx.translate(canvasX, canvasY);
+      ctx.rotate(pose.theta);
+      
+      // 三角形大小
+      const size = Math.min(scale * 3, 15);
+      
+      ctx.fillStyle = "#FF4444";
+      ctx.strokeStyle = "#CC0000";
+      ctx.lineWidth = 2;
+      
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size/2, -size/2);
+      ctx.lineTo(-size/2, size/2);
+      ctx.closePath();
+      
+      ctx.fill();
+      ctx.stroke();
+      
+      ctx.restore();
+    }
+
+    function drawPoseRecords(ctx, offsetX, offsetY, scale, mapInfo) {
+      ctx.fillStyle = "#0066CC";
+      
+      poseRecords.forEach((pose, index) => {
+        const mapX = (pose.x - mapInfo.origin_x) / mapInfo.resolution;
+        const mapY = (pose.y - mapInfo.origin_y) / mapInfo.resolution;
+        
+        const canvasX = offsetX + mapX * scale;
+        const canvasY = offsetY + mapY * scale;
+        
+        // 绘制位姿点
+        ctx.beginPath();
+        ctx.arc(canvasX, canvasY, 4, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // 绘制序号
+        ctx.fillStyle = "#FFFFFF";
+        ctx.font = "10px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(index + 1, canvasX, canvasY + 3);
+        ctx.fillStyle = "#0066CC";
+      });
+    }
+
+    function updateRobotStatus(status) {
+      const statusDiv = document.getElementById("robotStatus");
+      if (status.battery) {
+        statusDiv.innerHTML = `
+          <strong>电池:</strong> ${status.battery.power.toFixed(1)}% 
+          ${status.battery.charging ? "(充电中)" : "(放电中)"}<br>
+          <strong>位置:</strong> X: ${status.localization.x.toFixed(2)}, 
+          Y: ${status.localization.y.toFixed(2)}, 
+          θ: ${status.localization.theta.toFixed(2)}<br>
+          <strong>导航:</strong> ${status.navigation.status}
+        `;
+      }
+    }
+
+    function updateGoalRange() {
+      if (!mapData) return;
+      
+      const rangeDiv = document.getElementById("goalRange");
+      const minX = mapData.origin_x;
+      const maxX = mapData.origin_x + mapData.width * mapData.resolution;
+      const minY = mapData.origin_y;
+      const maxY = mapData.origin_y + mapData.height * mapData.resolution;
+      
+      rangeDiv.innerHTML = `目标点范围: X[${minX.toFixed(1)}, ${maxX.toFixed(1)}], Y[${minY.toFixed(1)}, ${maxY.toFixed(1)}]`;
+      
+      // 更新输入框的范围
+      document.getElementById("goalX").min = minX;
+      document.getElementById("goalX").max = maxX;
+      document.getElementById("goalY").min = minY;
+      document.getElementById("goalY").max = maxY;
     }
 
     function sendGoal() {
+      const goalX = parseFloat(document.getElementById("goalX").value);
+      const goalY = parseFloat(document.getElementById("goalY").value);
+      const goalTheta = parseFloat(document.getElementById("goalTheta").value);
+      
       fetch("http://localhost:8000/api/robot/navigation_goal", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           goal_id: 1,
-          goal_x: 5.0,
-          goal_y: 3.0,
-          goal_theta: 1.57,
+          goal_x: goalX,
+          goal_y: goalY,
+          goal_theta: goalTheta,
           xy_tolerance: 0.1,
           yaw_tolerance: 0.05
         })
       }).then(res => res.json())
-        .then(data => log(data));
+        .then(data => {
+          log(data);
+          if (data.Result === 0) {
+            log({message: `导航目标已发送: X=${goalX}, Y=${goalY}, θ=${goalTheta}`});
+          }
+        });
     }
 
     function sendCmdVel() {
+      const velX = parseFloat(document.getElementById("velX").value);
+      const velY = parseFloat(document.getElementById("velY").value);
+      const velTheta = parseFloat(document.getElementById("velTheta").value);
+      
       fetch("http://localhost:8000/api/robot/cmd_vel", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          vel_x: 0.2,
-          vel_y: 0.0,
-          vel_theta: 0.1
+          vel_x: velX,
+          vel_y: velY,
+          vel_theta: velTheta
         })
       }).then(res => res.json())
-        .then(data => log(data));
+        .then(data => {
+          log(data);
+          if (data.Result === 0) {
+            log({message: `速度指令已发送: vx=${velX}, vy=${velY}, vθ=${velTheta}`});
+          }
+        });
+    }
+
+    function capturePose() {
+      const pose = {
+        timestamp: new Date().toISOString(),
+        x: robotPose.x,
+        y: robotPose.y,
+        theta: robotPose.theta
+      };
+      
+      poseRecords.push(pose);
+      updatePoseList();
+      
+      if (mapData) {
+        drawMap(mapData);
+      }
+      
+      log({message: "位姿已记录", pose: pose});
+    }
+
+    function updatePoseList() {
+      const listDiv = document.getElementById("poseList");
+      if (poseRecords.length === 0) {
+        listDiv.innerHTML = "暂无记录";
+        return;
+      }
+      
+      listDiv.innerHTML = poseRecords.map((pose, index) => `
+        <div class="pose-item">
+          <strong>点 ${index + 1}:</strong> 
+          X: ${pose.x.toFixed(2)}, 
+          Y: ${pose.y.toFixed(2)}, 
+          θ: ${pose.theta.toFixed(2)}
+          <br>
+          <small>时间: ${new Date(pose.timestamp).toLocaleString()}</small>
+        </div>
+      `).join('');
+    }
+
+    function clearPoses() {
+      poseRecords = [];
+      updatePoseList();
+      
+      if (mapData) {
+        drawMap(mapData);
+      }
+      
+      log({message: "位姿记录已清除"});
     }
 
     function startAutoUpdate() {
@@ -210,12 +468,14 @@
         clearInterval(autoUpdateInterval);
       }
       
-      // 立即获取一次地图
+      // 立即获取一次地图和状态
       getMap();
+      getStatus();
       
-      // 每2秒更新一次地图
+      // 每2秒更新一次地图和状态
       autoUpdateInterval = setInterval(() => {
         getMap();
+        getStatus();
       }, 2000);
       
       log({status: "自动更新已启动"});
@@ -229,9 +489,10 @@
       }
     }
 
-    // 页面加载时自动获取地图
+    // 页面加载时自动获取地图和状态
     window.onload = function() {
       getMap();
+      getStatus();
     };
   </script>
 </body>
