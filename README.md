@@ -23,21 +23,8 @@ ROS2WebLink是一个用于连接ROS2机器人操作系统与Web界面的桥梁�
 # 安装Python依赖
 pip install flask flask-cors
 
-# 确保ROS2环境已配置
+# 确保ROS2环境已配置,如果你仅仅想要验证Web接口可以不配置ROS2
 source /opt/ros/<your-ros2-version>/setup.bash
-```
-
-### 启动服务器
-
-```bash
-# 进入项目目录
-cd /home/zy/ws/ROS2WebLink
-
-# 启动服务器（仅服务器模式）
-python3 web_server/ros_web_server.py
-
-# 启动服务器并打开Web界面
-python3 web_server/ros_web_server.py --open-browser
 ```
 
 ## 使用说明
