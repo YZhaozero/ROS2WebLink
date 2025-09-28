@@ -14,7 +14,7 @@ ROS2WebLink是一个用于连接ROS2机器人操作系统与Web界面的桥梁�
 ### 环境要求
 
 - Python 3.7+
-- ROS2 (Foxy或更高版本)
+- ROS2 (Humble)
 - 现代Web浏览器（Chrome、Firefox、Safari等）
 
 ### 安装依赖
