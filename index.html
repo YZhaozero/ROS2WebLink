@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Robot Web Demo</title>
+</head>
+<body>
+  <h1>Robot Web Interface</h1>
+  <button onclick="getMap()">获取地图</button>
+  <button onclick="getStatus()">获取状态</button>
+  <button onclick="sendGoal()">发送导航目标</button>
+  <button onclick="sendCmdVel()">发送速度指令</button>
+
+  <pre id="output"></pre>
+
+  <script>
+    function log(data) {
+      document.getElementById("output").innerText = JSON.stringify(data, null, 2);
+    }
+
+    function getMap() {
+      fetch("http://localhost:8000/api/robot/map")
+        .then(res => res.json())
+        .then(data => log(data));
+    }
+
+    function getStatus() {
+      fetch("http://localhost:8000/api/robot/status")
+        .then(res => res.json())
+        .then(data => log(data));
+    }
+
+    function sendGoal() {
+      fetch("http://localhost:8000/api/robot/navigation_goal", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          goal_id: 1,
+          goal_x: 5.0,
+          goal_y: 3.0,
+          goal_theta: 1.57,
+          xy_tolerance: 0.1,
+          yaw_tolerance: 0.05
+        })
+      }).then(res => res.json())
+        .then(data => log(data));
+    }
+
+    function sendCmdVel() {
+      fetch("http://localhost:8000/api/robot/cmd_vel", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          vel_x: 0.2,
+          vel_y: 0.0,
+          vel_theta: 0.1
+        })
+      }).then(res => res.json())
+        .then(data => log(data));
+    }
+  </script>
+</body>
+</html>
