@@ -3,6 +3,7 @@ import base64
 import random
 import time
 import threading
+import math
 from typing import Optional, Dict, Any
 
 # 尝试导入ROS2相关模块，如果失败则使用模拟模式
@@ -30,6 +31,9 @@ class SimulatedData:
         self.resolution = 0.1
         self.origin_x = -5.0
         self.origin_y = -5.0
+        self.blocked_recovery_attempts = 0
+        self.max_recovery_attempts = 3
+        self.last_blocked_time = 0
         
         # 生成模拟地图数据
         self.map_data = self._generate_simulated_map()
@@ -41,6 +45,20 @@ class SimulatedData:
         self.battery_level = 85.0
         self.charging = False
         self.nav_status = "IDLE"
+        
+        # 移动控制参数
+        self.current_vel_x = 0.0
+        self.current_vel_y = 0.0
+        self.current_vel_theta = 0.0
+        self.target_x = None
+        self.target_y = None
+        self.target_theta = None
+        self.movement_mode = "IDLE"  # IDLE, NAVIGATION, VELOCITY_CONTROL
+        
+        # BLOCKED状态恢复参数
+        self.blocked_recovery_attempts = 0
+        self.max_recovery_attempts = 3
+        self.last_blocked_time = 0
         
         # 启动模拟数据更新线程
         self.running = True
@@ -69,25 +87,185 @@ class SimulatedData:
                     data.append(0)  # 空闲
         return data
     
+    def _is_position_valid(self, x, y):
+        """检查位置是否有效（不碰撞障碍物）"""
+        # 转换为地图坐标
+        map_x = int((x - self.origin_x) / self.resolution)
+        map_y = int((y - self.origin_y) / self.resolution)
+        
+        # 检查边界
+        if map_x < 0 or map_x >= self.map_width or map_y < 0 or map_y >= self.map_height:
+            return False
+        
+        # 检查障碍物
+        index = map_y * self.map_width + map_x
+        if index < len(self.map_data) and self.map_data[index] == 100:
+            return False
+        
+        return True
+    
+    def _attempt_blocked_recovery(self):
+        """尝试从BLOCKED状态恢复"""
+        self.blocked_recovery_attempts += 1
+        
+        if self.blocked_recovery_attempts >= self.max_recovery_attempts:
+            # 超过最大尝试次数，重置为IDLE状态
+            self.nav_status = "IDLE"
+            self.movement_mode = "IDLE"
+            self.blocked_recovery_attempts = 0
+            self.target_x = None
+            self.target_y = None
+            self.target_theta = None
+            self.current_vel_x = 0
+            self.current_vel_y = 0
+            self.current_vel_theta = 0
+            print("BLOCKED状态恢复：超过最大尝试次数，重置为IDLE状态")
+            return
+        
+        # 尝试后退一小段距离
+        backup_distance = 0.2
+        backup_x = self.robot_x - backup_distance * math.cos(self.robot_theta)
+        backup_y = self.robot_y - backup_distance * math.sin(self.robot_theta)
+        
+        if self._is_position_valid(backup_x, backup_y):
+            self.robot_x = backup_x
+            self.robot_y = backup_y
+            self.nav_status = "RECOVERING"
+            print(f"BLOCKED状态恢复：尝试后退，第{self.blocked_recovery_attempts}次")
+        else:
+            # 如果后退也不行，尝试旋转
+            self.robot_theta += 0.5  # 旋转约30度
+            self.nav_status = "RECOVERING"
+            print(f"BLOCKED状态恢复：尝试旋转，第{self.blocked_recovery_attempts}次")
+    
+    def reset_blocked_status(self):
+        """手动重置BLOCKED状态"""
+        self.nav_status = "IDLE"
+        self.movement_mode = "IDLE"
+        self.blocked_recovery_attempts = 0
+        self.target_x = None
+        self.target_y = None
+        self.target_theta = None
+        self.current_vel_x = 0
+        self.current_vel_y = 0
+        self.current_vel_theta = 0
+        return {"Result": 0, "Error": "BLOCKED状态已重置"}
+    
+    def _update_navigation_movement(self):
+        """更新导航移动"""
+        if self.target_x is None or self.target_y is None:
+            return
+        
+        # 计算到目标的距离和角度
+        dx = self.target_x - self.robot_x
+        dy = self.target_y - self.robot_y
+        distance = (dx**2 + dy**2)**0.5
+        
+        # 如果距离很小，认为到达目标
+        if distance < 0.1:
+            self.robot_x = self.target_x
+            self.robot_y = self.target_y
+            if self.target_theta is not None:
+                self.robot_theta = self.target_theta
+            self.nav_status = "IDLE"
+            self.movement_mode = "IDLE"
+            self.target_x = None
+            self.target_y = None
+            self.target_theta = None
+            return
+        
+        # 计算目标角度
+        target_angle = math.atan2(dy, dx)
+        angle_diff = target_angle - self.robot_theta
+        
+        # 角度归一化到[-pi, pi]
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        
+        # 先调整角度，再移动
+        if abs(angle_diff) > 0.1:
+            # 旋转
+            angular_vel = 0.5 if angle_diff > 0 else -0.5
+            self.robot_theta += angular_vel * 0.1
+        else:
+            # 前进
+            speed = min(0.2, distance * 0.5)  # 速度与距离成比例
+            new_x = self.robot_x + speed * math.cos(self.robot_theta) * 0.1
+            new_y = self.robot_y + speed * math.sin(self.robot_theta) * 0.1
+            
+            # 检查新位置是否有效
+            if self._is_position_valid(new_x, new_y):
+                self.robot_x = new_x
+                self.robot_y = new_y
+            else:
+                # 如果路径被阻挡，停止导航
+                self.nav_status = "BLOCKED"
+                self.movement_mode = "IDLE"
+    
+    def _update_velocity_movement(self):
+        """更新速度控制移动"""
+        if abs(self.current_vel_x) < 0.01 and abs(self.current_vel_y) < 0.01 and abs(self.current_vel_theta) < 0.01:
+            self.nav_status = "IDLE"
+            self.movement_mode = "IDLE"
+            return
+        
+        # 计算新位置
+        dt = 0.1  # 时间步长
+        
+        # 更新角度
+        self.robot_theta += self.current_vel_theta * dt
+        
+        # 归一化角度
+        self.robot_theta = self.robot_theta % (2 * math.pi)
+        
+        # 计算新位置
+        new_x = self.robot_x + self.current_vel_x * dt * math.cos(self.robot_theta) - self.current_vel_y * dt * math.sin(self.robot_theta)
+        new_y = self.robot_y + self.current_vel_x * dt * math.sin(self.robot_theta) + self.current_vel_y * dt * math.cos(self.robot_theta)
+        
+        # 检查新位置是否有效
+        if self._is_position_valid(new_x, new_y):
+            self.robot_x = new_x
+            self.robot_y = new_y
+        else:
+            # 如果碰撞，停止移动
+            self.current_vel_x = 0
+            self.current_vel_y = 0
+            self.current_vel_theta = 0
+            self.nav_status = "BLOCKED"
+            self.movement_mode = "IDLE"
+    
     def _update_simulated_data(self):
         """更新模拟数据"""
+        import math
+        
         while self.running:
-            # 模拟机器人移动
-            if self.nav_status == "MOVING":
-                self.robot_x += random.uniform(-0.1, 0.1)
-                self.robot_y += random.uniform(-0.1, 0.1)
-                self.robot_theta += random.uniform(-0.1, 0.1)
-                
-                # 模拟电池消耗
-                self.battery_level = max(0, self.battery_level - 0.01)
-                
-                # 随机改变导航状态
-                if random.random() < 0.05:
-                    self.nav_status = "IDLE"
+            # 根据移动模式更新机器人位置
+            if self.movement_mode == "NAVIGATION":
+                self._update_navigation_movement()
+            elif self.movement_mode == "VELOCITY_CONTROL":
+                self._update_velocity_movement()
+            
+            # 模拟电池消耗
+            if self.movement_mode != "IDLE":
+                self.battery_level = max(0, self.battery_level - 0.02)
+            else:
+                self.battery_level = max(0, self.battery_level - 0.001)
             
             # 模拟充电
             if self.charging:
                 self.battery_level = min(100, self.battery_level + 0.1)
+            
+            # 低电量自动停止
+            if self.battery_level < 5:
+                self.movement_mode = "IDLE"
+                self.nav_status = "LOW_BATTERY"
+                self.current_vel_x = 0
+                self.current_vel_y = 0
+                self.current_vel_theta = 0
+                self.target_x = None
+                self.target_y = None
             
             time.sleep(0.1)
     
@@ -122,21 +300,62 @@ class SimulatedData:
             },
             "navigation": {
                 "status": self.nav_status,
-                "blocked": False,
+                "blocked": self.nav_status == "BLOCKED",
                 "goal_id": 0
             }
         }
     
     def handle_goal(self, goal_json):
         """处理导航目标"""
-        self.nav_status = "MOVING"
-        return {"Result": 0, "Error": ""}
+        try:
+            # 如果当前是BLOCKED状态，先重置
+            if self.nav_status == "BLOCKED":
+                self.nav_status = "IDLE"
+                self.movement_mode = "IDLE"
+                self.blocked_recovery_attempts = 0
+            
+            self.target_x = float(goal_json["goal_x"])
+            self.target_y = float(goal_json["goal_y"])
+            self.target_theta = float(goal_json.get("goal_theta", 0.0))
+            
+            # 检查目标位置是否有效
+            if self._is_position_valid(self.target_x, self.target_y):
+                self.movement_mode = "NAVIGATION"
+                self.nav_status = "MOVING"
+                return {"Result": 0, "Error": ""}
+            else:
+                return {"Result": 1, "Error": "Target position is not valid (collision with obstacle)"}
+        except (KeyError, ValueError) as e:
+            return {"Result": 1, "Error": f"Invalid goal data: {str(e)}"}
     
     def handle_cmd_vel(self, nav_json):
         """处理速度指令"""
-        if nav_json.get("vel_x", 0) != 0 or nav_json.get("vel_y", 0) != 0:
-            self.nav_status = "MOVING"
-        return {"Result": 0, "Error": ""}
+        try:
+            # 如果当前是BLOCKED状态，先重置
+            if self.nav_status == "BLOCKED":
+                self.nav_status = "IDLE"
+                self.movement_mode = "IDLE"
+                self.blocked_recovery_attempts = 0
+            
+            self.current_vel_x = float(nav_json.get("vel_x", 0.0))
+            self.current_vel_y = float(nav_json.get("vel_y", 0.0))
+            self.current_vel_theta = float(nav_json.get("vel_theta", 0.0))
+            
+            # 如果有速度指令，进入速度控制模式
+            if abs(self.current_vel_x) > 0.01 or abs(self.current_vel_y) > 0.01 or abs(self.current_vel_theta) > 0.01:
+                self.movement_mode = "VELOCITY_CONTROL"
+                self.nav_status = "MOVING"
+                # 清除导航目标
+                self.target_x = None
+                self.target_y = None
+                self.target_theta = None
+            else:
+                self.movement_mode = "IDLE"
+                self.nav_status = "IDLE"
+            
+            return {"Result": 0, "Error": ""}
+        except (ValueError, TypeError) as e:
+            return {"Result": 1, "Error": f"Invalid velocity data: {str(e)}"}
     
     def stop(self):
         """停止模拟数据更新"""
