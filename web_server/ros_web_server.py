@@ -31,9 +31,6 @@ class SimulatedData:
         self.resolution = 0.1
         self.origin_x = -5.0
         self.origin_y = -5.0
-        self.blocked_recovery_attempts = 0
-        self.max_recovery_attempts = 3
-        self.last_blocked_time = 0
         
         # 生成模拟地图数据
         self.map_data = self._generate_simulated_map()
@@ -45,6 +42,9 @@ class SimulatedData:
         self.battery_level = 85.0
         self.charging = False
         self.nav_status = "IDLE"
+        
+        # 添加导航状态
+        self.navigation_status = "IDLE"
         
         # 移动控制参数
         self.current_vel_x = 0.0
@@ -59,13 +59,20 @@ class SimulatedData:
         self.blocked_recovery_attempts = 0
         self.max_recovery_attempts = 3
         self.last_blocked_time = 0
+        self.last_status_update = time.time()  # 添加这一行
         
         # 启动模拟数据更新线程
         self.running = True
         self.update_thread = threading.Thread(target=self._update_simulated_data)
         self.update_thread.daemon = True
         self.update_thread.start()
-    
+    def _update_navigation_status(self, status):
+        """更新导航状态和时间戳"""
+        self.navigation_status = status
+        self.nav_status = status
+        self.last_status_update = time.time()
+        print(f"导航状态更新为: {status}")
+
     def _generate_simulated_map(self):
         """生成模拟的栅格地图数据"""
         data = []
@@ -110,7 +117,7 @@ class SimulatedData:
         
         if self.blocked_recovery_attempts >= self.max_recovery_attempts:
             # 超过最大尝试次数，重置为IDLE状态
-            self.nav_status = "IDLE"
+            self._update_navigation_status("FAILED")
             self.movement_mode = "IDLE"
             self.blocked_recovery_attempts = 0
             self.target_x = None
@@ -119,7 +126,7 @@ class SimulatedData:
             self.current_vel_x = 0
             self.current_vel_y = 0
             self.current_vel_theta = 0
-            print("BLOCKED状态恢复：超过最大尝试次数，重置为IDLE状态")
+            print("BLOCKED状态恢复：超过最大尝试次数，导航失败")
             return
         
         # 尝试后退一小段距离
@@ -130,17 +137,17 @@ class SimulatedData:
         if self._is_position_valid(backup_x, backup_y):
             self.robot_x = backup_x
             self.robot_y = backup_y
-            self.nav_status = "RECOVERING"
+            self._update_navigation_status("RECOVERING")
             print(f"BLOCKED状态恢复：尝试后退，第{self.blocked_recovery_attempts}次")
         else:
             # 如果后退也不行，尝试旋转
             self.robot_theta += 0.5  # 旋转约30度
-            self.nav_status = "RECOVERING"
+            self._update_navigation_status("RECOVERING")
             print(f"BLOCKED状态恢复：尝试旋转，第{self.blocked_recovery_attempts}次")
     
     def reset_blocked_status(self):
         """手动重置BLOCKED状态"""
-        self.nav_status = "IDLE"
+        self._update_navigation_status("IDLE")
         self.movement_mode = "IDLE"
         self.blocked_recovery_attempts = 0
         self.target_x = None
@@ -167,11 +174,12 @@ class SimulatedData:
             self.robot_y = self.target_y
             if self.target_theta is not None:
                 self.robot_theta = self.target_theta
-            self.nav_status = "IDLE"
+            self._update_navigation_status("SUCCEEDED")
             self.movement_mode = "IDLE"
             self.target_x = None
             self.target_y = None
             self.target_theta = None
+            print("导航成功到达目标")
             return
         
         # 计算目标角度
@@ -201,13 +209,14 @@ class SimulatedData:
                 self.robot_y = new_y
             else:
                 # 如果路径被阻挡，停止导航
-                self.nav_status = "BLOCKED"
+                self._update_navigation_status("FAILED")
                 self.movement_mode = "IDLE"
+                print("导航失败：路径被阻挡")
     
     def _update_velocity_movement(self):
         """更新速度控制移动"""
         if abs(self.current_vel_x) < 0.01 and abs(self.current_vel_y) < 0.01 and abs(self.current_vel_theta) < 0.01:
-            self.nav_status = "IDLE"
+            self._update_navigation_status("IDLE")
             self.movement_mode = "IDLE"
             return
         
@@ -233,8 +242,9 @@ class SimulatedData:
             self.current_vel_x = 0
             self.current_vel_y = 0
             self.current_vel_theta = 0
-            self.nav_status = "BLOCKED"
+            self._update_navigation_status("FAILED")
             self.movement_mode = "IDLE"
+            print("速度控制移动失败：碰撞检测")
     
     def _update_simulated_data(self):
         """更新模拟数据"""
@@ -259,13 +269,14 @@ class SimulatedData:
             
             # 低电量自动停止
             if self.battery_level < 5:
+                self._update_navigation_status("FAILED")
                 self.movement_mode = "IDLE"
-                self.nav_status = "LOW_BATTERY"
                 self.current_vel_x = 0
                 self.current_vel_y = 0
                 self.current_vel_theta = 0
                 self.target_x = None
                 self.target_y = None
+                print("低电量自动停止，导航失败")
             
             time.sleep(0.1)
     
@@ -305,9 +316,32 @@ class SimulatedData:
             }
         }
     
+    def get_navigation_status_json(self):
+        """获取导航状态的JSON数据"""
+        # 添加调试信息
+        current_time = time.time()
+        time_since_update = current_time - self.last_status_update
+        
+        status_info = {
+            "status": self.navigation_status,
+            "movement_mode": self.movement_mode,
+            "last_update": time_since_update,
+            "has_target": self.target_x is not None and self.target_y is not None,
+            "robot_position": {"x": self.robot_x, "y": self.robot_y, "theta": self.robot_theta}
+        }
+        
+        if self.target_x is not None and self.target_y is not None:
+            status_info["target_position"] = {"x": self.target_x, "y": self.target_y, "theta": self.target_theta}
+            distance = ((self.target_x - self.robot_x)**2 + (self.target_y - self.robot_y)**2)**0.5
+            status_info["distance_to_target"] = distance
+        
+        return status_info
+    
     def handle_goal(self, goal_json):
         """处理导航目标"""
         try:
+            print(f"收到导航目标: {goal_json}")
+            
             # 如果当前是BLOCKED状态，先重置
             if self.nav_status == "BLOCKED":
                 self.nav_status = "IDLE"
@@ -321,16 +355,25 @@ class SimulatedData:
             # 检查目标位置是否有效
             if self._is_position_valid(self.target_x, self.target_y):
                 self.movement_mode = "NAVIGATION"
-                self.nav_status = "MOVING"
+                self._update_navigation_status("GOING")
+                print(f"开始导航到目标: ({self.target_x}, {self.target_y})")
                 return {"Result": 0, "Error": ""}
             else:
+                # 目标位置无效，导航失败
+                self._update_navigation_status("FAILED")
+                print(f"目标位置无效: ({self.target_x}, {self.target_y})")
                 return {"Result": 1, "Error": "Target position is not valid (collision with obstacle)"}
         except (KeyError, ValueError) as e:
+            # 数据错误，导航失败
+            self._update_navigation_status("FAILED")
+            print(f"导航目标数据错误: {e}")
             return {"Result": 1, "Error": f"Invalid goal data: {str(e)}"}
     
     def handle_cmd_vel(self, nav_json):
         """处理速度指令"""
         try:
+            print(f"收到速度指令: {nav_json}")
+            
             # 如果当前是BLOCKED状态，先重置
             if self.nav_status == "BLOCKED":
                 self.nav_status = "IDLE"
@@ -344,18 +387,49 @@ class SimulatedData:
             # 如果有速度指令，进入速度控制模式
             if abs(self.current_vel_x) > 0.01 or abs(self.current_vel_y) > 0.01 or abs(self.current_vel_theta) > 0.01:
                 self.movement_mode = "VELOCITY_CONTROL"
-                self.nav_status = "MOVING"
+                self._update_navigation_status("GOING")
                 # 清除导航目标
                 self.target_x = None
                 self.target_y = None
                 self.target_theta = None
+                print(f"开始速度控制: vx={self.current_vel_x}, vy={self.current_vel_y}, vtheta={self.current_vel_theta}")
             else:
                 self.movement_mode = "IDLE"
-                self.nav_status = "IDLE"
+                self._update_navigation_status("IDLE")
+                print("停止速度控制")
             
             return {"Result": 0, "Error": ""}
         except (ValueError, TypeError) as e:
+            # 数据错误，导航失败
+            self._update_navigation_status("FAILED")
+            print(f"速度指令数据错误: {e}")
             return {"Result": 1, "Error": f"Invalid velocity data: {str(e)}"}
+    
+    def pause_navigation(self):
+        """暂停导航"""
+        if self.navigation_status == "GOING":
+            self._update_navigation_status("PAUSED")
+            self.movement_mode = "IDLE"
+            print("导航已暂停")
+            return {"Result": 0, "Error": "Navigation paused"}
+        else:
+            print(f"无法暂停导航，当前状态: {self.navigation_status}")
+            return {"Result": 1, "Error": "Navigation is not in progress"}
+    
+    def resume_navigation(self):
+        """恢复导航"""
+        if self.navigation_status == "PAUSED":
+            if self.target_x is not None and self.target_y is not None:
+                self.movement_mode = "NAVIGATION"
+                self._update_navigation_status("GOING")
+                print("导航已恢复")
+                return {"Result": 0, "Error": "Navigation resumed"}
+            else:
+                print("无法恢复导航：没有导航目标")
+                return {"Result": 1, "Error": "No navigation target to resume"}
+        else:
+            print(f"无法恢复导航，当前状态: {self.navigation_status}")
+            return {"Result": 1, "Error": "Navigation is not paused"}
     
     def stop(self):
         """停止模拟数据更新"""
@@ -371,6 +445,7 @@ class RosBridge(Node):
         self.latest_odom = None
         self.latest_battery = None
         self.latest_nav_status = None
+        self.latest_navigation_status = None
 
         # 订阅话题
         self.create_subscription(
@@ -381,10 +456,14 @@ class RosBridge(Node):
             BatteryState, "/battery", self.battery_callback, 10)
         self.create_subscription(
             String, "/nav_status", self.nav_status_callback, 10)
+        self.create_subscription(
+            String, "/navigation_status", self.navigation_status_callback, 10)
 
         # 发布器
         self.goal_pub = self.create_publisher(PoseStamped, "/goal", 10)
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.pause_pub = self.create_publisher(String, "/pause_navigation", 10)
+        self.resume_pub = self.create_publisher(String, "/resume_navigation", 10)
 
     # -------- 回调函数 --------
     def map_callback(self, msg: OccupancyGrid):
@@ -398,6 +477,9 @@ class RosBridge(Node):
 
     def nav_status_callback(self, msg: String):
         self.latest_nav_status = msg
+
+    def navigation_status_callback(self, msg: String):
+        self.latest_navigation_status = msg
 
     # -------- 工具函数：获取地图 JSON --------
     def get_map_json(self):
@@ -415,6 +497,28 @@ class RosBridge(Node):
             "origin_y": float(m.info.origin.position.y),
             "origin_yaw": 0.0,
             "data": base64.b64encode(bytes([d & 0xFF for d in m.data])).decode("utf-8")
+        }
+
+    def get_navigation_status_json(self):
+        """获取导航状态的JSON数据"""
+        if self.latest_navigation_status:
+            status = self.latest_navigation_status.data
+        elif self.latest_nav_status:
+            # 如果没有专门的导航状态话题，根据导航状态推断
+            nav_status = self.latest_nav_status.data
+            if nav_status in ["IDLE", "SUCCEEDED"]:
+                status = "IDLE"
+            elif nav_status in ["MOVING", "GOING"]:
+                status = "GOING"
+            elif nav_status == "PAUSED":
+                status = "PAUSED"
+            else:
+                status = "FAILED"
+        else:
+            status = "IDLE"
+        
+        return {
+            "status": status
         }
 
     # -------- 发布目标点 --------
@@ -438,6 +542,18 @@ class RosBridge(Node):
         msg.linear.y = float(nav_json.get("vel_y", 0.0))
         msg.angular.z = float(nav_json.get("vel_theta", 0.0))
         self.cmd_vel_pub.publish(msg)
+
+    # -------- 发布暂停导航指令 --------
+    def publish_pause_navigation(self):
+        msg = String()
+        msg.data = "pause"
+        self.pause_pub.publish(msg)
+
+    # -------- 发布恢复导航指令 --------
+    def publish_resume_navigation(self):
+        msg = String()
+        msg.data = "resume"
+        self.resume_pub.publish(msg)
 
 # ---------------- FastAPI ----------------
 app = FastAPI()
@@ -558,6 +674,22 @@ async def get_status():
         else:
             return {"Result": 1, "Error": "ROS node not initialized"}
 
+@app.get("/api/robot/navigation_status")
+async def get_navigation_status():
+    """获取导航状态"""
+    if current_mode == "simulation":
+        if simulated_data:
+            nav_data = simulated_data.get_navigation_status_json()
+            return {"Result": 0, "Error": "", **nav_data}
+        else:
+            return {"Result": 1, "Error": "Simulation data not initialized"}
+    else:  # ros mode
+        if ros_node:
+            nav_data = ros_node.get_navigation_status_json()
+            return {"Result": 0, "Error": "", **nav_data}
+        else:
+            return {"Result": 1, "Error": "ROS node not initialized"}
+
 @app.post("/api/robot/navigation_goal")
 async def navigation_goal(goal: dict):
     """发送导航目标"""
@@ -588,6 +720,42 @@ async def navigation_cmd(nav: dict):
         if ros_node:
             try:
                 ros_node.publish_cmd_vel(nav)
+                return {"Result": 0, "Error": ""}
+            except Exception as e:
+                return {"Result": 4, "Error": str(e)}
+        else:
+            return {"Result": 1, "Error": "ROS node not initialized"}
+
+@app.post("/api/robot/pause_navigation")
+async def pause_navigation():
+    """暂停导航"""
+    if current_mode == "simulation":
+        if simulated_data:
+            return simulated_data.pause_navigation()
+        else:
+            return {"Result": 1, "Error": "Simulation data not initialized"}
+    else:  # ros mode
+        if ros_node:
+            try:
+                ros_node.publish_pause_navigation()
+                return {"Result": 0, "Error": ""}
+            except Exception as e:
+                return {"Result": 4, "Error": str(e)}
+        else:
+            return {"Result": 1, "Error": "ROS node not initialized"}
+
+@app.post("/api/robot/resume_navigation")
+async def resume_navigation():
+    """恢复导航"""
+    if current_mode == "simulation":
+        if simulated_data:
+            return simulated_data.resume_navigation()
+        else:
+            return {"Result": 1, "Error": "Simulation data not initialized"}
+    else:  # ros mode
+        if ros_node:
+            try:
+                ros_node.publish_resume_navigation()
                 return {"Result": 0, "Error": ""}
             except Exception as e:
                 return {"Result": 4, "Error": str(e)}
