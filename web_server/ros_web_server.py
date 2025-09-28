@@ -94,7 +94,6 @@ class RosBridge(Node):
 # ---------------- FastAPI ----------------
 app = FastAPI()
 
-# ✅ 跨域允许
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 如果想只允许本地前端访问，可改成 ["http://localhost:8080"]
