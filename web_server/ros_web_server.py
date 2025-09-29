@@ -353,6 +353,13 @@ class SimulatedData:
             self.target_y = float(goal_json["goal_y"])
             self.target_theta = float(goal_json.get("goal_theta", 0.0))
             
+            # 存储目标点ID（如果提供）
+            if "goal_id" in goal_json:
+                self.current_goal_id = str(goal_json["goal_id"])
+                print(f"设置目标点ID: {self.current_goal_id}")
+            else:
+                self.current_goal_id = None
+            
             # 检查目标位置是否有效
             if self._is_position_valid(self.target_x, self.target_y):
                 self.movement_mode = "NAVIGATION"
@@ -462,6 +469,7 @@ class RosBridge(Node):
 
         # 发布器
         self.goal_pub = self.create_publisher(PoseStamped, "/goal", 10)
+        self.goal_id_pub = self.create_publisher(String, "/goal_id", 10)
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_web", 10)
         self.pause_pub = self.create_publisher(String, "/pause_navigation", 10)
         self.resume_pub = self.create_publisher(String, "/resume_navigation", 10)
@@ -523,7 +531,9 @@ class RosBridge(Node):
         }
 
     # -------- 发布目标点 --------
+    # -------- 发布目标点 --------
     def publish_goal(self, goal_json):
+        # 发布目标位置
         msg = PoseStamped()
         msg.header.frame_id = "map"
         msg.pose.position.x = float(goal_json["goal_x"])
@@ -535,6 +545,13 @@ class RosBridge(Node):
         msg.pose.orientation.w = cos(yaw / 2.0)
 
         self.goal_pub.publish(msg)
+        
+        # 发布目标点ID
+        if "goal_id" in goal_json:
+            goal_id_msg = String()
+            goal_id_msg.data = str(goal_json["goal_id"])
+            self.goal_id_pub.publish(goal_id_msg)
+            print(f"发布目标点ID: {goal_id_msg.data}")
 
     # -------- 发布速度指令 --------
     def publish_cmd_vel(self, nav_json):
