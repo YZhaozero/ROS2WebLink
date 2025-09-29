@@ -53,6 +53,7 @@ class SimulatedData:
         self.target_x = None
         self.target_y = None
         self.target_theta = None
+        self.current_goal_id = None
         self.movement_mode = "IDLE"  # IDLE, NAVIGATION, VELOCITY_CONTROL
         
         # BLOCKED状态恢复参数
@@ -461,7 +462,7 @@ class RosBridge(Node):
 
         # 发布器
         self.goal_pub = self.create_publisher(PoseStamped, "/goal", 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_web", 10)
         self.pause_pub = self.create_publisher(String, "/pause_navigation", 10)
         self.resume_pub = self.create_publisher(String, "/resume_navigation", 10)
 
@@ -743,6 +744,91 @@ async def pause_navigation():
                 return {"Result": 4, "Error": str(e)}
         else:
             return {"Result": 1, "Error": "ROS node not initialized"}
+
+@app.post("/api/robot/resume_navigation")
+async def resume_navigation():
+    """恢复导航"""
+    if current_mode == "simulation":
+        if simulated_data:
+            return simulated_data.resume_navigation()
+        else:
+            return {"Result": 1, "Error": "Simulation data not initialized"}
+    else:  # ros mode
+        if ros_node:
+            try:
+                ros_node.publish_resume_navigation()
+                return {"Result": 0, "Error": ""}
+            except Exception as e:
+                return {"Result": 4, "Error": str(e)}
+        else:
+            return {"Result": 1, "Error": "ROS node not initialized"}
+
+# 在现有的FastAPI接口后面添加导航结果回调通知接口
+
+@app.post("/api/inspection/callback")
+async def inspection_callback(callback_data: dict):
+    """
+    导航结果回调通知接口
+    导航任务执行完毕后，导航系统通知巡检平台任务执行状态
+    """
+    try:
+        # 验证必需的参数
+        required_fields = ["robot_id", "task_id", "execution_status", "execution_time"]
+        for field in required_fields:
+            if field not in callback_data:
+                return {
+                    "code": 400,
+                    "msg": f"Missing required field: {field}"
+                }
+        
+        robot_id = callback_data["robot_id"]
+        task_id = callback_data["task_id"]
+        execution_status = callback_data["execution_status"]
+        execution_time = callback_data["execution_time"]
+        
+        # 验证execution_status的值
+        valid_statuses = ["SUCCEEDED", "FAILED", "success"]  # 包含示例中的"success"
+        if execution_status not in valid_statuses:
+            return {
+                "code": 400,
+                "msg": f"Invalid execution_status. Must be one of: {valid_statuses}"
+            }
+        
+        # 验证execution_time是否为有效的13位时间戳
+        if not isinstance(execution_time, int) or execution_time < 1000000000000 or execution_time > 9999999999999:
+            return {
+                "code": 400,
+                "msg": "Invalid execution_time. Must be a 13-digit UNIX timestamp in milliseconds"
+            }
+        
+        # 记录回调信息（可以根据实际需求添加日志或数据库存储）
+        print(f"收到导航结果回调:")
+        print(f"  机器人ID: {robot_id}")
+        print(f"  任务ID: {task_id}")
+        print(f"  执行状态: {execution_status}")
+        print(f"  执行时间: {execution_time}")
+        
+        
+        # 如果是模拟模式，可以更新模拟数据的状态
+        if current_mode == "simulation" and simulated_data:
+            if execution_status in ["SUCCEEDED", "success"]:
+                simulated_data._update_navigation_status("SUCCEEDED")
+            else:
+                simulated_data._update_navigation_status("FAILED")
+        
+        # 返回成功响应
+        return {
+            "code": 200,
+            "msg": "success"
+        }
+        
+    except Exception as e:
+        # 处理异常情况
+        print(f"处理导航结果回调时发生错误: {str(e)}")
+        return {
+            "code": 500,
+            "msg": f"Internal server error: {str(e)}"
+        }
 
 @app.post("/api/robot/resume_navigation")
 async def resume_navigation():
