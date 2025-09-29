@@ -249,6 +249,22 @@
         <button onclick="stopMovement()">⏹️ 停止移动</button>
       </div>
       
+      <div class="input-group">
+        <h4>🔔 巡检回调测试</h4>
+        <label>机器人ID:</label>
+        <input type="number" id="callbackRobotId" value="1">
+        <label>任务ID:</label>
+        <input type="number" id="callbackTaskId" value="1001">
+        <label>执行状态:</label>
+        <select id="callbackStatus" style="margin-right: 10px;">
+          <option value="SUCCEEDED">成功完成</option>
+          <option value="FAILED">执行失败</option>
+          <option value="success">成功(兼容)</option>
+        </select>
+        <button onclick="sendInspectionCallback('success')" style="margin-left: 10px;">✅ 模拟成功回调</button>
+        <button onclick="sendInspectionCallback('failed')">❌ 模拟失败回调</button>
+      </div>
+      
       <div id="goalRange" style="margin-top: 10px; color: #7f8c8d; font-size: 12px;"></div>
     </div>
 
@@ -764,6 +780,57 @@
       URL.revokeObjectURL(url);
       
       addHistoryEntry('历史记录已导出', 'success');
+    }
+
+    // 巡检回调通知函数
+    function sendInspectionCallback(statusType) {
+      const robotId = document.getElementById('callbackRobotId').value;
+      const taskId = document.getElementById('callbackTaskId').value;
+      const statusSelect = document.getElementById('callbackStatus');
+      
+      // 根据按钮类型设置状态
+      if (statusType === 'success') {
+        statusSelect.value = 'SUCCEEDED';
+      } else if (statusType === 'failed') {
+        statusSelect.value = 'FAILED';
+      }
+      
+      const executionStatus = statusSelect.value;
+      const executionTime = Date.now(); // 获取当前时间戳（毫秒）
+      
+      const callbackData = {
+        robot_id: parseInt(robotId),
+        task_id: parseInt(taskId),
+        execution_status: executionStatus,
+        execution_time: executionTime
+      };
+      
+      addHistoryEntry(`发送巡检回调: 机器人${robotId}, 任务${taskId}, 状态${executionStatus}`, 'info');
+      
+      fetch("http://localhost:8000/api/inspection/callback", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(callbackData)
+      }).then(res => res.json())
+        .then(data => {
+          if (data.code === 200) {
+            addHistoryEntry(`巡检回调发送成功: ${data.msg}`, 'success');
+            showAlert(`🔔 巡检回调发送成功 - 任务${taskId}状态: ${executionStatus}`, 'success');
+            
+            // 如果是模拟模式，等待一段时间后获取最新的导航状态
+            setTimeout(() => {
+              getNavigationStatus();
+            }, 1000);
+          } else {
+            addHistoryEntry(`巡检回调发送失败: ${data.msg}`, 'error');
+            showAlert(`❌ 巡检回调发送失败: ${data.msg}`, 'error');
+          }
+        })
+        .catch(error => {
+          console.error("巡检回调请求失败:", error);
+          addHistoryEntry(`巡检回调请求失败: ${error.message}`, 'error');
+          showAlert(`❌ 巡检回调请求失败: ${error.message}`, 'error');
+        });
     }
 
     // 页面加载时自动获取地图和状态
