@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>巡检回调验证测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        .section h3 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .input-group label {
+            min-width: 100px;
+            font-weight: bold;
+        }
+        .input-group input, .input-group select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            flex: 1;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn-info {
+            background-color: #17a2b8;
+            color: white;
+        }
+        .btn-warning {
+            background-color: #ffc107;
+            color: black;
+        }
+        .status-display {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+        .status-item {
+            margin-bottom: 8px;
+        }
+        .status-label {
+            font-weight: bold;
+            color: #495057;
+        }
+        .status-value {
+            color: #007bff;
+        }
+        .log-container {
+            background-color: #212529;
+            color: #ffffff;
+            border-radius: 4px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        .log-timestamp {
+            color: #6c757d;
+        }
+        .log-success {
+            color: #28a745;
+        }
+        .log-error {
+            color: #dc3545;
+        }
+        .log-info {
+            color: #17a2b8;
+        }
+        .config-section {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔔 巡检回调验证测试</h1>
+    
+    <!-- 服务器配置 -->
+    <div class="container">
+        <div class="config-section">
+            <h3>⚙️ 服务器配置</h3>
+            <div class="input-group">
+                <label>服务器地址:</label>
+                <input type="text" id="serverUrl" value="http://10.240.6.173:8000" placeholder="服务器地址">
+                <button class="btn btn-info" onclick="testConnection()">测试连接</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 手动回调测试 -->
+    <div class="container">
+        <div class="section">
+            <h3>📝 手动回调测试</h3>
+            <div class="input-group">
+                <label>机器人ID:</label>
+                <input type="number" id="manualRobotId" value="1" placeholder="机器人ID">
+            </div>
+            <div class="input-group">
+                <label>任务ID:</label>
+                <input type="number" id="manualTaskId" value="1001" placeholder="任务ID">
+            </div>
+            <div class="input-group">
+                <label>执行状态:</label>
+                <select id="manualStatus">
+                    <option value="SUCCEEDED">成功完成 (SUCCEEDED)</option>
+                    <option value="FAILED">执行失败 (FAILED)</option>
+                    <option value="success">成功 (success)</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <button class="btn btn-success" onclick="sendManualCallback('SUCCEEDED')">✅ 发送成功回调</button>
+                <button class="btn btn-danger" onclick="sendManualCallback('FAILED')">❌ 发送失败回调</button>
+                <button class="btn btn-info" onclick="sendManualCallback()">📤 发送自定义回调</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROS状态监听测试 -->
+    <div class="container">
+        <div class="section">
+            <h3>🤖 ROS状态监听测试</h3>
+            <div class="input-group">
+                <button class="btn btn-info" onclick="getNavStatus()">🔄 获取导航状态</button>
+                <button class="btn btn-success" onclick="startAutoMonitoring()">▶️ 开始自动监听</button>
+                <button class="btn btn-warning" onclick="stopAutoMonitoring()">⏹️ 停止自动监听</button>
+                <button class="btn btn-info" onclick="triggerAutoCallback()">🚀 触发自动回调</button>
+            </div>
+            
+            <div class="status-display">
+                <div class="status-item">
+                    <span class="status-label">当前导航状态:</span>
+                    <span class="status-value" id="currentNavStatus">未知</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">是否可触发回调:</span>
+                    <span class="status-value" id="canTriggerCallback">未知</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">最后更新时间:</span>
+                    <span class="status-value" id="lastUpdateTime">未更新</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">监听状态:</span>
+                    <span class="status-value" id="monitoringStatus">已停止</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 回调响应显示 -->
+    <div class="container">
+        <div class="section">
+            <h3>📊 回调响应显示</h3>
+            <div class="status-display">
+                <div class="status-item">
+                    <span class="status-label">响应码:</span>
+                    <span class="status-value" id="responseCode">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">响应消息:</span>
+                    <span class="status-value" id="responseMessage">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">响应时间:</span>
+                    <span class="status-value" id="responseTime">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">完整响应:</span>
+                    <pre id="fullResponse" style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 5px;">-</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志显示 -->
+    <div class="container">
+        <div class="section">
+            <h3>📋 操作日志</h3>
+            <button class="btn btn-warning" onclick="clearLog()" style="margin-bottom: 10px;">🗑️ 清除日志</button>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry">
+                    <span class="log-timestamp">[系统]</span>
+                    <span>巡检回调验证测试页面已加载</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let monitoringInterval = null;
+        const serverUrlInput = document.getElementById('serverUrl');
+
+        // 获取服务器URL
+        function getServerUrl() {
+            return serverUrlInput.value.trim();
+        }
+
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <span>${message}</span>`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // 清除日志
+        function clearLog() {
+            const logContainer = document.getElementById('logContainer');
+            logContainer.innerHTML = `
+                <div class="log-entry">
+                    <span class="log-timestamp">[系统]</span>
+                    <span>日志已清除</span>
+                </div>
+            `;
+        }
+
+        // 测试连接
+        function testConnection() {
+            const url = getServerUrl();
+            addLog(`正在测试服务器连接: ${url}`, 'info');
+            
+            fetch(`${url}/api/robot/status`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.Result === 0) {
+                        addLog(`✅ 服务器连接成功`, 'success');
+                        showAlert('服务器连接成功', 'success');
+                    } else {
+                        addLog(`❌ 服务器连接失败: ${data.Error}`, 'error');
+                        showAlert('服务器连接失败', 'error');
+                    }
+                })
+                .catch(error => {
+                    addLog(`❌ 连接失败: ${error.message}`, 'error');
+                    showAlert('连接失败', 'error');
+                });
+        }
+
+        // 发送手动回调
+        function sendManualCallback(statusType = null) {
+            const robotId = document.getElementById('manualRobotId').value;
+            const taskId = document.getElementById('manualTaskId').value;
+            const statusSelect = document.getElementById('manualStatus');
+            
+            // 根据按钮类型设置状态
+            if (statusType === 'SUCCEEDED') {
+                statusSelect.value = 'SUCCEEDED';
+            } else if (statusType === 'FAILED') {
+                statusSelect.value = 'FAILED';
+            }
+            
+            const executionStatus = statusSelect.value;
+            const executionTime = Date.now();
+            
+            const callbackData = {
+                robot_id: parseInt(robotId),
+                task_id: parseInt(taskId),
+                execution_status: executionStatus,
+                execution_time: executionTime
+            };
+            
+            addLog(`发送手动回调: 机器人${robotId}, 任务${taskId}, 状态${executionStatus}`, 'info');
+            
+            sendCallbackRequest(callbackData);
+        }
+
+        // 获取导航状态
+        function getNavStatus() {
+            const url = getServerUrl();
+            addLog('正在获取导航状态...', 'info');
+            
+            fetch(`${url}/api/inspection/nav_status`)
+                .then(response => response.json())
+                .then(data => {
+                    updateNavStatusDisplay(data);
+                    if (data.code === 200) {
+                        addLog(`✅ 获取导航状态成功: ${data.nav_status}`, 'success');
+                    } else {
+                        addLog(`❌ 获取导航状态失败: ${data.msg}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    addLog(`❌ 获取导航状态失败: ${error.message}`, 'error');
+                });
+        }
+
+        // 触发自动回调
+        function triggerAutoCallback() {
+            const url = getServerUrl();
+            addLog('正在触发自动回调...', 'info');
+            
+            fetch(`${url}/api/inspection/callback`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+                .then(response => response.json())
+                .then(data => {
+                    updateResponseDisplay(data);
+                    if (data.code === 200) {
+                        addLog(`✅ 自动回调触发成功`, 'success');
+                    } else {
+                        addLog(`❌ 自动回调触发失败: ${data.msg}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    addLog(`❌ 自动回调触发失败: ${error.message}`, 'error');
+                });
+        }
+
+        // 开始自动监听
+        function startAutoMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+            }
+            
+            monitoringInterval = setInterval(() => {
+                getNavStatus();
+            }, 3000); // 每3秒更新一次
+            
+            document.getElementById('monitoringStatus').textContent = '运行中';
+            document.getElementById('monitoringStatus').style.color = '#28a745';
+            addLog('▶️ 自动监听已启动', 'success');
+        }
+
+        // 停止自动监听
+        function stopAutoMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+            }
+            
+            document.getElementById('monitoringStatus').textContent = '已停止';
+            document.getElementById('monitoringStatus').style.color = '#dc3545';
+            addLog('⏹️ 自动监听已停止', 'warning');
+        }
+
+        // 发送回调请求
+        function sendCallbackRequest(callbackData) {
+            const url = getServerUrl();
+            const startTime = Date.now();
+            
+            fetch(`${url}/api/inspection/callback`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(callbackData)
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const responseTime = Date.now() - startTime;
+                    updateResponseDisplay(data, responseTime);
+                    
+                    if (data.code === 200) {
+                        addLog(`✅ 回调发送成功: ${data.msg}`, 'success');
+                        showAlert('回调发送成功', 'success');
+                    } else {
+                        addLog(`❌ 回调发送失败: ${data.msg}`, 'error');
+                        showAlert('回调发送失败', 'error');
+                    }
+                })
+                .catch(error => {
+                    addLog(`❌ 回调发送失败: ${error.message}`, 'error');
+                    showAlert('回调发送失败', 'error');
+                });
+        }
+
+        // 更新导航状态显示
+        function updateNavStatusDisplay(data) {
+            document.getElementById('currentNavStatus').textContent = data.nav_status || '未知';
+            document.getElementById('canTriggerCallback').textContent = data.can_trigger_callback ? '是' : '否';
+            document.getElementById('canTriggerCallback').style.color = data.can_trigger_callback ? '#28a745' : '#dc3545';
+            document.getElementById('lastUpdateTime').textContent = new Date().toLocaleTimeString();
+        }
+
+        // 更新响应显示
+        function updateResponseDisplay(data, responseTime = null) {
+            document.getElementById('responseCode').textContent = data.code;
+            document.getElementById('responseCode').style.color = data.code === 200 ? '#28a745' : '#dc3545';
+            document.getElementById('responseMessage').textContent = data.msg;
+            document.getElementById('responseTime').textContent = responseTime ? `${responseTime}ms` : '-';
+            document.getElementById('fullResponse').textContent = JSON.stringify(data, null, 2);
+        }
+
+        // 显示提示信息
+        function showAlert(message, type) {
+            // 简单的提示实现，可以根据需要扩展
+            const alertDiv = document.createElement('div');
+            alertDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 4px;
+                color: white;
+                font-weight: bold;
+                z-index: 1000;
+                background-color: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
+            `;
+            alertDiv.textContent = message;
+            document.body.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                document.body.removeChild(alertDiv);
+            }, 3000);
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            addLog('🔔 巡检回调验证测试页面已加载', 'info');
+            // 自动测试连接
+            setTimeout(testConnection, 1000);
+        };
+    </script>
+</body>
+</html>
