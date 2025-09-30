@@ -57,7 +57,46 @@ class RosBridge(Node):
         self.latest_battery = msg
 
     def nav_status_callback(self, msg: String):
+        """
+        导航状态回调函数
+        监听/nav_status话题，当状态为SUCCEEDED或FAILED时，自动触发巡检回调
+        """
         self.latest_nav_status = msg
+        nav_status = msg.data
+        
+        # 检查是否为任务完成状态
+        if nav_status in ["SUCCEEDED", "FAILED"]:
+            print(f"检测到导航任务完成，状态: {nav_status}")
+            
+            # 自动触发巡检回调
+            self._trigger_inspection_callback(nav_status)
+
+    def _trigger_inspection_callback(self, execution_status):
+        """
+        触发巡检回调通知
+        根据导航状态自动构造回调数据并发送到巡检平台
+        """
+        try:
+            # 构造回调数据
+            import time
+            callback_data = {
+                "robot_id": 1,  # 默认机器人ID，可根据需要配置
+                "task_id": int(time.time()),  # 使用时间戳作为任务ID
+                "execution_status": execution_status,
+                "execution_time": int(time.time() * 1000)  # 13位时间戳（毫秒）
+            }
+            
+            print(f"自动触发巡检回调:")
+            print(f"  机器人ID: {callback_data['robot_id']}")
+            print(f"  任务ID: {callback_data['task_id']}")
+            print(f"  执行状态: {callback_data['execution_status']}")
+            print(f"  执行时间: {callback_data['execution_time']}")
+            
+            # 这里可以添加HTTP请求到巡检平台的逻辑
+            # 例如：requests.post("http://inspection-platform/api/callback", json=callback_data)
+            
+        except Exception as e:
+            print(f"触发巡检回调时发生错误: {str(e)}")
 
     def navigation_status_callback(self, msg: String):
         self.latest_navigation_status = msg
@@ -267,12 +306,31 @@ async def resume_navigation():
         return {"Result": 1, "Error": "ROS node not initialized"}
 
 @app.post("/api/inspection/callback")
-async def inspection_callback(callback_data: dict):
-    """
-    导航结果回调通知接口
-    导航任务执行完毕后，导航系统通知巡检平台任务执行状态
-    """
+async def inspection_callback(callback_data: dict = None):
     try:
+        # 如果没有传入callback_data，则从ROS获取最新状态
+        if callback_data is None:
+            if ros_node and ros_node.latest_nav_status:
+                nav_status = ros_node.latest_nav_status.data
+                if nav_status in ["SUCCEEDED", "FAILED"]:
+                    import time
+                    callback_data = {
+                        "robot_id": 1,  # 默认机器人ID
+                        "task_id": int(time.time()),  # 使用时间戳作为任务ID
+                        "execution_status": nav_status,
+                        "execution_time": int(time.time() * 1000)  # 13位时间戳
+                    }
+                else:
+                    return {
+                        "code": 400,
+                        "msg": f"Current nav_status '{nav_status}' is not a completion status"
+                    }
+            else:
+                return {
+                    "code": 400,
+                    "msg": "No nav_status data available from ROS"
+                }
+        
         # 验证必需的参数
         required_fields = ["robot_id", "task_id", "execution_status", "execution_time"]
         for field in required_fields:
@@ -322,6 +380,28 @@ async def inspection_callback(callback_data: dict):
             "code": 500,
             "msg": f"Internal server error: {str(e)}"
         }
+
+@app.get("/api/inspection/nav_status")
+async def get_nav_status_for_callback():
+    """
+    获取导航状态用于巡检回调
+    返回当前ROS /nav_status话题的状态，如果为SUCCEEDED或FAILED则可用于触发回调
+    """
+    if ros_node and ros_node.latest_nav_status:
+        nav_status = ros_node.latest_nav_status.data
+        return {
+            "code": 200,
+            "msg": "success",
+            "nav_status": nav_status,
+            "can_trigger_callback": nav_status in ["SUCCEEDED", "FAILED"],
+            "timestamp": int(time.time() * 1000)
+        }
+    else:
+        return {
+            "code": 400,
+            "msg": "No nav_status data available from ROS"
+        }
+
 
 # ---------------- Main ----------------
 def main():
