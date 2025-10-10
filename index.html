@@ -396,7 +396,7 @@
     }
 
     function getMap() {
-      fetch("http://10.240.6.173:8000/api/robot/map")
+      fetch("http://172.66.2.110:8000/api/robot/map")
         .then(res => res.json())
         .then(data => {
           log(data);
@@ -417,7 +417,7 @@
     }
 
     function getStatus() {
-      fetch("http://10.240.6.173:8000/api/robot/status")
+      fetch("http://172.66.2.110:8000/api/robot/status")
         .then(res => res.json())
         .then(data => {
           log(data);
@@ -457,7 +457,7 @@
     }
 
     function getNavigationStatus() {
-      fetch("http://10.240.6.173:8000/api/robot/navigation_status")
+      fetch("http://172.66.2.110:8000/api/robot/navigation_status")
         .then(res => res.json())
         .then(data => {
           log(data);
@@ -619,7 +619,7 @@
       const goalY = parseFloat(document.getElementById("goalY").value);
       const goalTheta = parseFloat(document.getElementById("goalTheta").value);
       
-      fetch("http://10.240.6.173:8000/api/robot/navigation_goal", {
+      fetch("http://172.66.2.110:8000/api/robot/navigation_goal", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -647,7 +647,7 @@
       const velY = parseFloat(document.getElementById("velY").value);
       const velTheta = parseFloat(document.getElementById("velTheta").value);
       
-      fetch("http://10.240.6.173:8000/api/robot/cmd_vel", {
+      fetch("http://172.66.2.110:8000/api/robot/cmd_vel", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -666,7 +666,7 @@
     }
 
     function stopMovement() {
-      fetch("http://10.240.6.173:8000/api/robot/cmd_vel", {
+      fetch("http://172.66.2.110:8000/api/robot/cmd_vel", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -684,7 +684,7 @@
     }
 
     function pauseNavigation() {
-      fetch("http://10.240.6.173:8000/api/robot/pause_navigation", {
+      fetch("http://172.66.2.110:8000/api/robot/pause_navigation", {
         method: "POST"
       }).then(res => res.json())
         .then(data => {
@@ -698,7 +698,7 @@
     }
 
     function resumeNavigation() {
-      fetch("http://10.240.6.173:8000/api/robot/resume_navigation", {
+      fetch("http://172.66.2.110:8000/api/robot/resume_navigation", {
         method: "POST"
       }).then(res => res.json())
         .then(data => {
@@ -807,7 +807,7 @@
       
       addHistoryEntry(`发送巡检回调: 机器人${robotId}, 任务${taskId}, 状态${executionStatus}`, 'info');
       
-      fetch("http://10.240.6.173:8000/api/inspection/callback", {
+      fetch("http://172.66.2.110:8000/api/inspection/callback", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(callbackData)

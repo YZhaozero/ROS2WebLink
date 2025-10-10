@@ -872,7 +872,7 @@ def main():
     parser = argparse.ArgumentParser(description="ROS2 Web Server with Simulation Mode")
     parser.add_argument("--mode", choices=["simulation", "ros"], default="simulation",
                        help="Run mode: simulation (default) or ros")
-    parser.add_argument("--host", default="10.240.6.173", help="Host to bind to")
+    parser.add_argument("--host", default="172.66.2.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     
     args = parser.parse_args()

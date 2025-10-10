@@ -26,6 +26,9 @@ class RosBridge(Node):
         self.latest_battery = None
         self.latest_nav_status = None
         self.latest_navigation_status = None
+        
+        # 当前任务ID缓存
+        self.current_task_id = None
 
         # 订阅话题
         self.create_subscription(
@@ -79,9 +82,12 @@ class RosBridge(Node):
         try:
             # 构造回调数据
             import time
+            # 使用当前任务ID，如果没有则使用时间戳
+            task_id = self.current_task_id if self.current_task_id is not None else int(time.time())
+            
             callback_data = {
                 "robot_id": 1,  # 默认机器人ID，可根据需要配置
-                "task_id": int(time.time()),  # 使用时间戳作为任务ID
+                "task_id": task_id,  # 使用保存的任务ID
                 "execution_status": execution_status,
                 "execution_time": int(time.time() * 1000)  # 13位时间戳（毫秒）
             }
@@ -156,12 +162,18 @@ class RosBridge(Node):
 
         self.goal_pub.publish(msg)
         
-        # 发布目标点ID
+        # 保存当前任务ID
         if "goal_id" in goal_json:
+            self.current_task_id = int(goal_json["goal_id"])
             goal_id_msg = String()
             goal_id_msg.data = str(goal_json["goal_id"])
             self.goal_id_pub.publish(goal_id_msg)
             print(f"发布目标点ID: {goal_id_msg.data}")
+            print(f"保存当前任务ID: {self.current_task_id}")
+        else:
+            # 如果没有提供goal_id，则清空当前任务ID
+            self.current_task_id = None
+            print("未提供目标点ID，清空当前任务ID")
 
     # -------- 发布速度指令 --------
     def publish_cmd_vel(self, nav_json):
@@ -242,7 +254,7 @@ async def get_status():
                 "status": ros_node.latest_nav_status.data
                 if ros_node.latest_nav_status else "IDLE",
                 "blocked": False,
-                "goal_id": 0
+                "goal_id": ros_node.current_task_id if ros_node.current_task_id is not None else 0
             }
         }
     else:
@@ -314,9 +326,12 @@ async def inspection_callback(callback_data: dict = None):
                 nav_status = ros_node.latest_nav_status.data
                 if nav_status in ["SUCCEEDED", "FAILED"]:
                     import time
+                    # 使用当前任务ID，如果没有则使用时间戳
+                    task_id = ros_node.current_task_id if ros_node.current_task_id is not None else int(time.time())
+                    
                     callback_data = {
                         "robot_id": 1,  # 默认机器人ID
-                        "task_id": int(time.time()),  # 使用时间戳作为任务ID
+                        "task_id": task_id,  # 使用保存的任务ID
                         "execution_status": nav_status,
                         "execution_time": int(time.time() * 1000)  # 13位时间戳
                     }
@@ -394,6 +409,7 @@ async def get_nav_status_for_callback():
             "msg": "success",
             "nav_status": nav_status,
             "can_trigger_callback": nav_status in ["SUCCEEDED", "FAILED"],
+            "current_task_id": ros_node.current_task_id,
             "timestamp": int(time.time() * 1000)
         }
     else:
@@ -408,7 +424,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="ROS2 Web Server")
-    parser.add_argument("--host", default="10.240.6.173", help="Host to bind to")
+    parser.add_argument("--host", default="172.66.2.110", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     
     args = parser.parse_args()
