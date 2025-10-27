@@ -8,6 +8,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import Twist, PoseStamped, Point, Quaternion
+from nav2_msgs.action._navigate_to_pose import NavigateToPose_FeedbackMessage
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
 
@@ -23,6 +24,7 @@ class RosBridge(Node):
         # 最新数据缓存
         self.latest_map = None
         self.latest_odom = None
+        self.nav_feedback = None
         self.latest_battery = None
         self.latest_nav_status = None
         self.latest_navigation_status = None
@@ -41,6 +43,8 @@ class RosBridge(Node):
             String, "/nav_status", self.nav_status_callback, 10)
         self.create_subscription(
             String, "/navigation_status", self.navigation_status_callback, 10)
+        self.create_subscription(
+            NavigateToPose_FeedbackMessage,'/navigate_to_pose/_action/feedback', self.nav2_feedback_callback,10)
 
         # 发布器
         self.goal_pub = self.create_publisher(PoseStamped, "/goal", 10)
@@ -55,6 +59,9 @@ class RosBridge(Node):
 
     def odom_callback(self, msg: Odometry):
         self.latest_odom = msg
+
+    def nav2_feedback_callback(self, msg: NavigateToPose_FeedbackMessage):
+        self.nav_feedback = msg
 
     def battery_callback(self, msg: BatteryState):
         self.latest_battery = msg
@@ -241,12 +248,21 @@ async def get_status():
                 "charging": ros_node.latest_battery.power_supply_status == 1
                 if ros_node.latest_battery else False
             },
+            # "localization": {
+            #     "status": 0 if ros_node.latest_odom else 1,
+            #     "x": float(ros_node.latest_odom.pose.pose.position.x)
+            #     if ros_node.latest_odom else 0.0,
+            #     "y": float(ros_node.latest_odom.pose.pose.position.y)
+            #     if ros_node.latest_odom else 0.0,
+            #     "theta": 0.0,
+            #     "reliability": 0.95
+            # },
             "localization": {
-                "status": 0 if ros_node.latest_odom else 1,
-                "x": float(ros_node.latest_odom.pose.pose.position.x)
-                if ros_node.latest_odom else 0.0,
-                "y": float(ros_node.latest_odom.pose.pose.position.y)
-                if ros_node.latest_odom else 0.0,
+                "status": 0 if ros_node.nav_feedback else 1,
+                "x": float(ros_node.nav_feedback.feedback.current_pose.pose.position.x)
+                if ros_node.nav_feedback else 0.0,
+                "y": float(ros_node.nav_feedback.feedback.current_pose.pose.position.y)
+                if ros_node.nav_feedback else 0.0,
                 "theta": 0.0,
                 "reliability": 0.95
             },
