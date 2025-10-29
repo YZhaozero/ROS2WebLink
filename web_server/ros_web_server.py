@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import base64
 import time
+import math
 from typing import Optional, Dict, Any
 
 # 导入ROS2相关模块
@@ -36,7 +37,8 @@ class RosBridge(Node):
         self.create_subscription(
             OccupancyGrid, "/map", self.map_callback, 10)
         self.create_subscription(
-            Odometry, "/odom", self.odom_callback, 10)
+            Odometry, "/tron_commander/odom", self.odom_callback, 10)
+            # Odometry, "/dlio/odom_node/odom", self.odom_callback, 10)
         self.create_subscription(
             BatteryState, "/battery", self.battery_callback, 10)
         self.create_subscription(
@@ -113,6 +115,18 @@ class RosBridge(Node):
 
     def navigation_status_callback(self, msg: String):
         self.latest_navigation_status = msg
+
+    def quaternion_to_yaw(self, q):
+        """
+        将四元数转换为偏航角(yaw)
+        q: geometry_msgs.msg.Quaternion
+        返回: float - 偏航角(弧度)
+        """
+        # 四元数到欧拉角的转换
+        # yaw = atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny, cosy)
 
     # -------- 工具函数：获取地图 JSON --------
     def get_map_json(self):
@@ -241,6 +255,12 @@ async def get_map():
 async def get_status():
     """获取机器人状态"""
     if ros_node:
+        # 从odom消息中提取角度
+        theta = 0.0
+        if ros_node.latest_odom:
+            orientation = ros_node.latest_odom.pose.pose.orientation
+            theta = ros_node.quaternion_to_yaw(orientation)
+        
         return {
             "battery": {
                 "power": float(ros_node.latest_battery.percentage)
@@ -248,24 +268,24 @@ async def get_status():
                 "charging": ros_node.latest_battery.power_supply_status == 1
                 if ros_node.latest_battery else False
             },
+            "localization": {
+                "status": 0 if ros_node.latest_odom else 1,
+                "x": float(ros_node.latest_odom.pose.pose.position.x)
+                if ros_node.latest_odom else 0.0,
+                "y": float(ros_node.latest_odom.pose.pose.position.y)
+                if ros_node.latest_odom else 0.0,
+                "theta": theta,
+                "reliability": 0.95
+            },
             # "localization": {
-            #     "status": 0 if ros_node.latest_odom else 1,
-            #     "x": float(ros_node.latest_odom.pose.pose.position.x)
-            #     if ros_node.latest_odom else 0.0,
-            #     "y": float(ros_node.latest_odom.pose.pose.position.y)
-            #     if ros_node.latest_odom else 0.0,
+            #     "status": 0 if ros_node.nav_feedback else 1,
+            #     "x": float(ros_node.nav_feedback.feedback.current_pose.pose.position.x)
+            #     if ros_node.nav_feedback else 0.0,
+            #     "y": float(ros_node.nav_feedback.feedback.current_pose.pose.position.y)
+            #     if ros_node.nav_feedback else 0.0,
             #     "theta": 0.0,
             #     "reliability": 0.95
             # },
-            "localization": {
-                "status": 0 if ros_node.nav_feedback else 1,
-                "x": float(ros_node.nav_feedback.feedback.current_pose.pose.position.x)
-                if ros_node.nav_feedback else 0.0,
-                "y": float(ros_node.nav_feedback.feedback.current_pose.pose.position.y)
-                if ros_node.nav_feedback else 0.0,
-                "theta": 0.0,
-                "reliability": 0.95
-            },
             "navigation": {
                 "status": ros_node.latest_nav_status.data
                 if ros_node.latest_nav_status else "IDLE",
