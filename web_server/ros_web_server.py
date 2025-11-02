@@ -460,7 +460,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="ROS2 Web Server")
-    parser.add_argument("--host", default="172.66.2.110", help="Host to bind to")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     
     args = parser.parse_args()
