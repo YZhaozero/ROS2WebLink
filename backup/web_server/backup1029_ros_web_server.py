@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import base64
 import time
-import math
 from typing import Optional, Dict, Any
 
 # 导入ROS2相关模块
@@ -37,8 +36,7 @@ class RosBridge(Node):
         self.create_subscription(
             OccupancyGrid, "/map", self.map_callback, 10)
         self.create_subscription(
-            Odometry, "/tron_commander/odom", self.odom_callback, 10)
-            # Odometry, "/dlio/odom_node/odom", self.odom_callback, 10)
+            Odometry, "/tron_commander/odom", self.odom_callback, 10)   # 20251024话题修改
         self.create_subscription(
             BatteryState, "/battery", self.battery_callback, 10)
         self.create_subscription(
@@ -51,8 +49,7 @@ class RosBridge(Node):
         # 发布器
         self.goal_pub = self.create_publisher(PoseStamped, "/goal", 10)
         self.goal_id_pub = self.create_publisher(String, "/goal_id", 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
-        self.vel_control_pub = self.create_publisher(Twist, "/vel_control", 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_web", 10)
         self.pause_pub = self.create_publisher(String, "/pause_navigation", 10)
         self.resume_pub = self.create_publisher(String, "/resume_navigation", 10)
 
@@ -116,18 +113,6 @@ class RosBridge(Node):
 
     def navigation_status_callback(self, msg: String):
         self.latest_navigation_status = msg
-
-    def quaternion_to_yaw(self, q):
-        """
-        将四元数转换为偏航角(yaw)
-        q: geometry_msgs.msg.Quaternion
-        返回: float - 偏航角(弧度)
-        """
-        # 四元数到欧拉角的转换
-        # yaw = atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z))
-        siny = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        return math.atan2(siny, cosy)
 
     # -------- 工具函数：获取地图 JSON --------
     def get_map_json(self):
@@ -205,13 +190,6 @@ class RosBridge(Node):
         msg.angular.z = float(nav_json.get("vel_theta", 0.0))
         self.cmd_vel_pub.publish(msg)
 
-    def vel_control_pub(self, nav_json):
-        msg = Twist()
-        msg.linear.x = float(nav_json.get("vel_x", 0.0))
-        msg.linear.y = float(nav_json.get("vel_y", 0.0))
-        msg.angular.z = float(nav_json.get("vel_theta", 0.0))
-        self.vel_control_pub.publish(msg)
-
     # -------- 发布暂停导航指令 --------
     def publish_pause_navigation(self):
         msg = String()
@@ -263,12 +241,6 @@ async def get_map():
 async def get_status():
     """获取机器人状态"""
     if ros_node:
-        # 从odom消息中提取角度
-        theta = 0.0
-        if ros_node.latest_odom:
-            orientation = ros_node.latest_odom.pose.pose.orientation
-            theta = ros_node.quaternion_to_yaw(orientation)
-        
         return {
             "battery": {
                 "power": float(ros_node.latest_battery.percentage)
@@ -276,15 +248,15 @@ async def get_status():
                 "charging": ros_node.latest_battery.power_supply_status == 1
                 if ros_node.latest_battery else False
             },
-            "localization": {
-                "status": 0 if ros_node.latest_odom else 1,
-                "x": float(ros_node.latest_odom.pose.pose.position.x)
-                if ros_node.latest_odom else 0.0,
-                "y": float(ros_node.latest_odom.pose.pose.position.y)
-                if ros_node.latest_odom else 0.0,
-                "theta": theta,
-                "reliability": 0.95
-            },
+             "localization": {
+                 "status": 0 if ros_node.latest_odom else 1,
+                 "x": float(ros_node.latest_odom.pose.pose.position.x)
+                 if ros_node.latest_odom else 0.0,
+                 "y": float(ros_node.latest_odom.pose.pose.position.y)
+                 if ros_node.latest_odom else 0.0,
+                 "theta": 0.0,
+                 "reliability": 0.95
+             },
             # "localization": {
             #     "status": 0 if ros_node.nav_feedback else 1,
             #     "x": float(ros_node.nav_feedback.feedback.current_pose.pose.position.x)
@@ -325,24 +297,12 @@ async def navigation_goal(goal: dict):
     else:
         return {"Result": 1, "Error": "ROS node not initialized"}
 
-@app.post("/api/robot/control")
-async def navigation_cmd(nav: dict):
-    """发送速度指令"""
-    if ros_node:
-        try:
-            ros_node.publish_cmd_vel(nav)
-            return {"Result": 0, "Error": ""}
-        except Exception as e:
-            return {"Result": 4, "Error": str(e)}
-    else:
-        return {"Result": 1, "Error": "ROS node not initialized"}
-
 @app.post("/api/robot/cmd_vel")
 async def navigation_cmd(nav: dict):
     """发送速度指令"""
     if ros_node:
         try:
-            ros_node.vel_control_pub(nav)
+            ros_node.publish_cmd_vel(nav)
             return {"Result": 0, "Error": ""}
         except Exception as e:
             return {"Result": 4, "Error": str(e)}
