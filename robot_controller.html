@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>机器人控制</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .control-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .header {
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .connection-status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            max-width: 300px;
+            margin: 0 auto 30px;
+        }
+
+        .control-btn {
+            background: linear-gradient(145deg, #6c757d, #5a6268);
+            color: white;
+            border: none;
+            border-radius: 15px;
+            padding: 30px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            min-height: 80px;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .control-btn.forward {
+            background: linear-gradient(145deg, #28a745, #218838);
+            grid-column: 2;
+        }
+
+        .control-btn.backward {
+            background: linear-gradient(145deg, #dc3545, #c82333);
+            grid-column: 2;
+            grid-row: 3;
+        }
+
+        .control-btn.left {
+            background: linear-gradient(145deg, #ffc107, #e0a800);
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .control-btn.right {
+            background: linear-gradient(145deg, #17a2b8, #138496);
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .control-btn.stop {
+            background: linear-gradient(145deg, #fd7e14, #e8690c);
+            grid-column: 2;
+            grid-row: 2;
+            font-size: 18px;
+        }
+
+        .speed-control {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+
+        .speed-control h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+
+        .speed-slider {
+            width: 100%;
+            margin: 15px 0;
+        }
+
+        .speed-value {
+            text-align: center;
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #495057;
+            margin: 10px 0;
+        }
+
+        .emergency-stop {
+            background: linear-gradient(145deg, #dc3545, #c82333);
+            color: white;
+            border: none;
+            border-radius: 15px;
+            padding: 20px 40px;
+            font-size: 1.3em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+            width: 100%;
+            max-width: 250px;
+        }
+
+        .emergency-stop:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(220, 53, 69, 0.6);
+        }
+
+        .keyboard-hint {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 14px;
+            color: #495057;
+        }
+
+        .keyboard-hint strong {
+            color: #333;
+        }
+
+        @media (max-width: 480px) {
+            .control-panel {
+                padding: 30px 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .control-btn {
+                padding: 25px;
+                font-size: 20px;
+                min-height: 70px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="control-panel">
+        <div class="header">
+            <h1>🤖 机器人控制</h1>
+            <div id="connection-status" class="connection-status disconnected">
+                未连接
+            </div>
+        </div>
+
+        <div class="control-grid">
+            <button class="control-btn forward" id="btn-forward">↑<br>前进</button>
+            <button class="control-btn left" id="btn-left">←<br>左转</button>
+            <button class="control-btn stop" id="btn-stop">⏹<br>停止</button>
+            <button class="control-btn right" id="btn-right">→<br>右转</button>
+            <button class="control-btn backward" id="btn-backward">↓<br>后退</button>
+        </div>
+
+        <div class="speed-control">
+            <h3>⚡ 速度控制</h3>
+            <div class="speed-value">线速度: <span id="linear-speed">0.5</span> m/s</div>
+            <input type="range" id="linear-slider" class="speed-slider" min="0" max="2" step="0.1" value="0.5">
+            
+            <div class="speed-value">角速度: <span id="angular-speed">0.5</span> rad/s</div>
+            <input type="range" id="angular-slider" class="speed-slider" min="0" max="2" step="0.1" value="0.5">
+        </div>
+
+        <button class="emergency-stop" id="btn-emergency">🚨 紧急停止</button>
+
+        <div class="keyboard-hint">
+            <strong>键盘控制：</strong><br>
+            W/↑ - 前进 | S/↓ - 后退 | A/← - 左转 | D/→ - 右转 | 空格 - 停止
+        </div>
+    </div>
+
+    <script>
+        class SimpleRobotController {
+            constructor() {
+                this.serverUrl = 'http://127.0.0.1:8000';
+                this.isConnected = false;
+                this.linearSpeed = 0.5;
+                this.angularSpeed = 0.5;
+                
+                this.initializeControls();
+                this.checkConnection();
+                this.startConnectionMonitoring();
+            }
+
+            initializeControls() {
+                // 方向控制按钮
+                document.getElementById('btn-forward').addEventListener('mousedown', () => this.moveForward());
+                document.getElementById('btn-backward').addEventListener('mousedown', () => this.moveBackward());
+                document.getElementById('btn-left').addEventListener('mousedown', () => this.turnLeft());
+                document.getElementById('btn-right').addEventListener('mousedown', () => this.turnRight());
+                document.getElementById('btn-stop').addEventListener('click', () => this.stop());
+                document.getElementById('btn-emergency').addEventListener('click', () => this.emergencyStop());
+
+                // 鼠标释放时停止
+                ['btn-forward', 'btn-backward', 'btn-left', 'btn-right'].forEach(id => {
+                    document.getElementById(id).addEventListener('mouseup', () => this.stop());
+                    document.getElementById(id).addEventListener('mouseleave', () => this.stop());
+                });
+
+                // 速度滑块
+                document.getElementById('linear-slider').addEventListener('input', (e) => {
+                    this.linearSpeed = parseFloat(e.target.value);
+                    document.getElementById('linear-speed').textContent = this.linearSpeed.toFixed(1);
+                });
+
+                document.getElementById('angular-slider').addEventListener('input', (e) => {
+                    this.angularSpeed = parseFloat(e.target.value);
+                    document.getElementById('angular-speed').textContent = this.angularSpeed.toFixed(1);
+                });
+
+                // 键盘控制
+                document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+                document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+            }
+
+            async sendCmdVel(vel_x, vel_y, vel_theta) {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/control`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ vel_x, vel_y, vel_theta })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    if (result.Result !== 0) {
+                        console.error('发送速度指令失败:', result.Error);
+                    }
+                } catch (error) {
+                    console.error('发送速度指令错误:', error);
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            moveForward() {
+                this.sendCmdVel(this.linearSpeed, 0, 0);
+            }
+
+            moveBackward() {
+                this.sendCmdVel(-this.linearSpeed, 0, 0);
+            }
+
+            turnLeft() {
+                this.sendCmdVel(0, 0, this.angularSpeed);
+            }
+
+            turnRight() {
+                this.sendCmdVel(0, 0, -this.angularSpeed);
+            }
+
+            stop() {
+                this.sendCmdVel(0, 0, 0);
+            }
+
+            emergencyStop() {
+                this.stop();
+                alert('🚨 紧急停止已触发！');
+            }
+
+            handleKeyDown(e) {
+                if (e.repeat) return; // 防止重复触发
+                
+                switch(e.key.toLowerCase()) {
+                    case 'arrowup':
+                        this.moveForward();
+                        break;
+                    case 'arrowdown':
+                        this.moveBackward();
+                        break;
+                    case 'arrowleft':
+                        this.turnLeft();
+                        break;
+                    case 'arrowright':
+                        this.turnRight();
+                        break;
+                    case ' ':
+                        e.preventDefault();
+                        this.stop();
+                        break;
+                }
+            }
+
+            handleKeyUp(e) {
+                // 释放方向键时停止
+                if (['w', 's', 'a', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
+                    this.stop();
+                }
+            }
+
+            async checkConnection() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/status`);
+                    this.updateConnectionStatus(response.ok);
+                } catch (error) {
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            updateConnectionStatus(connected) {
+                this.isConnected = connected;
+                const statusElement = document.getElementById('connection-status');
+                if (connected) {
+                    statusElement.textContent = '已连接';
+                    statusElement.className = 'connection-status connected';
+                } else {
+                    statusElement.textContent = '未连接';
+                    statusElement.className = 'connection-status disconnected';
+                }
+            }
+
+            startConnectionMonitoring() {
+                // 每5秒检查一次连接状态
+                setInterval(() => {
+                    this.checkConnection();
+                }, 5000);
+            }
+        }
+
+        // 初始化控制器
+        document.addEventListener('DOMContentLoaded', () => {
+            new SimpleRobotController();
+        });
+
+        // 页面卸载时停止机器人
+        window.addEventListener('beforeunload', () => {
+            // 发送停止指令
+            fetch('http://127.0.0.1:8000/api/robot/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vel_x: 0, vel_y: 0, vel_theta: 0 }),
+                keepalive: true
+            });
+        });
+    </script>
+</body>
+</html>
