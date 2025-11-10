@@ -10,12 +10,17 @@ from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import Twist, PoseStamped, Point, Quaternion
 from nav2_msgs.action._navigate_to_pose import NavigateToPose_FeedbackMessage
-from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+
+# 导入RobotSDKBridge
+try:
+    from robot_sdk_bridge import RobotSDKBridge
+except ImportError:
+    RobotSDKBridge = None
 
 # ---------------- ROS2 Node ----------------
 class RosBridge(Node):
@@ -26,21 +31,28 @@ class RosBridge(Node):
         self.latest_map = None
         self.latest_odom = None
         self.nav_feedback = None
-        self.latest_battery = None
         self.latest_nav_status = None
         self.latest_navigation_status = None
         
         # 当前任务ID缓存
         self.current_task_id = None
 
+        # 初始化RobotSDKBridge
+        self.robot_sdk = None
+        if RobotSDKBridge is not None:
+            self.robot_sdk = RobotSDKBridge(url="ws://0.0.0.0:5000")
+            try:
+                self.robot_sdk.start(background=True)
+                print("RobotSDKBridge initialized successfully")
+            except Exception as e:
+                print(f"Failed to initialize RobotSDKBridge: {e}")
+                self.robot_sdk = None
+
         # 订阅话题
         self.create_subscription(
             OccupancyGrid, "/map", self.map_callback, 10)
         self.create_subscription(
             Odometry, "/tron_commander/odom", self.odom_callback, 10)
-            # Odometry, "/dlio/odom_node/odom", self.odom_callback, 10)
-        self.create_subscription(
-            BatteryState, "/battery", self.battery_callback, 10)
         self.create_subscription(
             String, "/nav_status", self.nav_status_callback, 10)
         self.create_subscription(
@@ -65,9 +77,6 @@ class RosBridge(Node):
 
     def nav2_feedback_callback(self, msg: NavigateToPose_FeedbackMessage):
         self.nav_feedback = msg
-
-    def battery_callback(self, msg: BatteryState):
-        self.latest_battery = msg
 
     def nav_status_callback(self, msg: String):
         """
@@ -269,12 +278,17 @@ async def get_status():
             orientation = ros_node.latest_odom.pose.pose.orientation
             theta = ros_node.quaternion_to_yaw(orientation)
         
+        # 获取电池电量信息 - 使用robot_sdk而不是latest_battery
+        battery_power = 0.0
+        if ros_node.robot_sdk and ros_node.robot_sdk.robot_info:
+            battery_info = ros_node.robot_sdk.robot_info.get("battery")
+            if battery_info is not None:
+                battery_power = float(battery_info)
+        
         return {
             "battery": {
-                "power": float(ros_node.latest_battery.percentage)
-                if ros_node.latest_battery else 0.0,
-                "charging": ros_node.latest_battery.power_supply_status == 1
-                if ros_node.latest_battery else False
+                "power": battery_power,
+                "charging": False  # 暂时设置为False，可根据需要从robot_sdk获取充电状态
             },
             "localization": {
                 "status": 0 if ros_node.latest_odom else 1,
