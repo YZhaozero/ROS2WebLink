@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图点击导航</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .server-config {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3498db;
+        }
+
+        .server-config h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .config-inputs {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .config-inputs label {
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .config-inputs input {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .config-inputs button {
+            background: linear-gradient(145deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .config-inputs button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+        }
+
+        .map-container {
+            position: relative;
+            width: 100%;
+            height: 600px;
+            background: #2c3e50;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            border: 3px solid #34495e;
+        }
+
+        #mapCanvas {
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        .map-overlay {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+
+        .status-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .status-item {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-item h4 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .status-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .connection-status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+
+        .connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+
+        .control-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 15px;
+        }
+
+        .control-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            background: linear-gradient(145deg, #6c757d, #5a6268);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-btn.primary {
+            background: linear-gradient(145deg, #3498db, #2980b9);
+        }
+
+        .control-btn.success {
+            background: linear-gradient(145deg, #28a745, #218838);
+        }
+
+        .control-btn.warning {
+            background: linear-gradient(145deg, #ffc107, #e0a800);
+        }
+
+        .control-btn.danger {
+            background: linear-gradient(145deg, #dc3545, #c82333);
+        }
+
+        .goal-marker {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #e74c3c;
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            z-index: 5;
+        }
+
+        .goal-marker::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .robot-marker {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: #3498db;
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        .robot-marker::before {
+            content: '🤖';
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 20px;
+        }
+
+        .info-panel {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            max-width: 300px;
+        }
+
+        .info-panel h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .info-item {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .map-container {
+                height: 400px;
+            }
+            
+            .config-inputs {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .control-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ 地图点击导航</h1>
+            <p>点击地图任意位置发送导航目标点</p>
+        </div>
+
+        <div class="server-config">
+            <h3>🌐 服务器配置</h3>
+            <div class="config-inputs">
+                <div>
+                    <label>服务器地址:</label>
+                    <input type="text" id="serverHost" value="127.0.0.1" placeholder="服务器IP">
+                </div>
+                <div>
+                    <label>端口:</label>
+                    <input type="number" id="serverPort" value="8000" placeholder="端口">
+                </div>
+                <button onclick="updateServerConfig()">更新配置</button>
+                <div class="connection-status disconnected" id="connection-status">未连接</div>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <canvas id="mapCanvas"></canvas>
+            <div class="map-overlay">
+                <h4>地图信息</h4>
+                <div class="info-item">分辨率: <span id="mapResolution">-</span> m/像素</div>
+                <div class="info-item">尺寸: <span id="mapSize">-</span> 像素</div>
+                <div class="info-item">原点: (<span id="mapOriginX">-</span>, <span id="mapOriginY">-</span>)</div>
+            </div>
+            <div class="info-panel">
+                <h4>操作说明</h4>
+                <div class="info-item">• 点击地图设置目标点</div>
+                <div class="info-item">• 蓝色圆点表示机器人位置</div>
+                <div class="info-item">• 红色圆点表示目标点</div>
+            </div>
+        </div>
+
+        <div class="status-panel">
+            <div class="status-grid">
+                <div class="status-item">
+                    <h4>机器人位置</h4>
+                    <div class="status-value" id="robotPosition">X: -, Y: -, θ: -</div>
+                </div>
+                <div class="status-item">
+                    <h4>目标点位置</h4>
+                    <div class="status-value" id="goalPosition">X: -, Y: -, θ: -</div>
+                </div>
+                <div class="status-item">
+                    <h4>导航状态</h4>
+                    <div class="status-value" id="navStatus">空闲</div>
+                </div>
+                <div class="status-item">
+                    <h4>电池电量</h4>
+                    <div class="status-value" id="batteryLevel">- %</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="control-buttons">
+                <button class="control-btn primary" onclick="sendGoal()">🚀 发送目标点</button>
+                <button class="control-btn warning" onclick="pauseNavigation()">⏸️ 暂停导航</button>
+                <button class="control-btn success" onclick="resumeNavigation()">▶️ 恢复导航</button>
+                <button class="control-btn danger" onclick="stopNavigation()">⏹️ 停止导航</button>
+                <button class="control-btn" onclick="clearGoal()">🗑️ 清除目标点</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class MapClickNavigation {
+            constructor() {
+                this.serverUrl = 'http://127.0.0.1:8000';
+                this.isConnected = false;
+                this.mapData = null;
+                this.canvas = document.getElementById('mapCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.robotPosition = { x: 0, y: 0, theta: 0 };
+                this.goalPosition = null;
+                this.mapScale = 1.0;
+                this.mapOffset = { x: 0, y: 0 };
+                
+                this.initialize();
+                this.startMonitoring();
+            }
+
+            initialize() {
+                // 设置Canvas大小
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+                
+                // 绑定事件
+                this.canvas.addEventListener('click', (e) => this.handleMapClick(e));
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                
+                // 初始化服务器配置
+                this.updateServerConfig();
+                
+                // 加载地图
+                this.loadMap();
+            }
+
+            resizeCanvas() {
+                const container = this.canvas.parentElement;
+                this.canvas.width = container.clientWidth;
+                this.canvas.height = container.clientHeight;
+                this.drawMap();
+            }
+
+            async loadMap() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/map`);
+                    if (response.ok) {
+                        this.mapData = await response.json();
+                        this.updateMapInfo();
+                        this.drawMap();
+                        this.updateConnectionStatus(true);
+                    } else {
+                        throw new Error('地图加载失败');
+                    }
+                } catch (error) {
+                    console.error('加载地图错误:', error);
+                    this.updateConnectionStatus(false);
+                    // 5秒后重试
+                    setTimeout(() => this.loadMap(), 5000);
+                }
+            }
+
+            updateMapInfo() {
+                if (this.mapData && this.mapData.Result === 0) {
+                    document.getElementById('mapResolution').textContent = this.mapData.resolution.toFixed(3);
+                    document.getElementById('mapSize').textContent = `${this.mapData.width} × ${this.mapData.height}`;
+                    document.getElementById('mapOriginX').textContent = this.mapData.origin_x.toFixed(2);
+                    document.getElementById('mapOriginY').textContent = this.mapData.origin_y.toFixed(2);
+                }
+            }
+
+            drawMap() {
+                if (!this.mapData || this.mapData.Result !== 0) {
+                    // 绘制默认背景
+                    this.ctx.fillStyle = '#2c3e50';
+                    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.fillStyle = '#ecf0f1';
+                    this.ctx.font = '20px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText('等待地图数据...', this.canvas.width / 2, this.canvas.height / 2);
+                    return;
+                }
+
+                // 清空画布
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // 计算地图显示参数
+const mapWidth = this.mapData.width;
+                const mapHeight = this.mapData.height;
+                const resolution = this.mapData.resolution;
+                
+                // 计算缩放比例以适应画布
+                const scaleX = this.canvas.width / mapWidth;
+                const scaleY = this.canvas.height / mapHeight;
+                this.mapScale = Math.min(scaleX, scaleY) * 0.9; // 留出边距
+                
+                // 计算偏移量使地图居中
+                this.mapOffset.x = (this.canvas.width - mapWidth * this.mapScale) / 2;
+                this.mapOffset.y = (this.canvas.height - mapHeight * this.mapScale) / 2;
+
+                // 解码地图数据
+                const mapBytes = Uint8Array.from(atob(this.mapData.data), c => c.charCodeAt(0));
+                
+                // 绘制地图
+                for (let y = 0; y < mapHeight; y++) {
+                    for (let x = 0; x < mapWidth; x++) {
+                        const index = y * mapWidth + x;
+                        const value = mapBytes[index];
+                        
+                        let color;
+                        if (value === 0) {
+                            color = '#ffffff'; // 空闲空间
+                        } else if (value === 100) {
+                            color = '#2c3e50'; // 障碍物
+                        } else {
+                            color = '#bdc3c7'; // 未知区域
+                        }
+                        
+                        this.ctx.fillStyle = color;
+                        this.ctx.fillRect(
+                            this.mapOffset.x + x * this.mapScale,
+                            this.mapOffset.y + y * this.mapScale,
+                            this.mapScale,
+                            this.mapScale
+                        );
+                    }
+                }
+
+                // 绘制机器人位置
+                this.drawRobot();
+
+                // 绘制目标点
+                this.drawGoal();
+            }
+
+            drawRobot() {
+                if (!this.robotPosition) return;
+
+                // 将世界坐标转换为像素坐标
+                const pixelX = this.mapOffset.x + (this.robotPosition.x - this.mapData.origin_x) / this.mapData.resolution * this.mapScale;
+                const pixelY = this.mapOffset.y + (this.robotPosition.y - this.mapData.origin_y) / this.mapData.resolution * this.mapScale;
+
+                // 绘制机器人标记
+                this.ctx.fillStyle = '#3498db';
+                this.ctx.beginPath();
+                this.ctx.arc(pixelX, pixelY, 12, 0, 2 * Math.PI);
+                this.ctx.fill();
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+
+                // 绘制方向指示器
+                this.ctx.save();
+                this.ctx.translate(pixelX, pixelY);
+                this.ctx.rotate(this.robotPosition.theta);
+                this.ctx.fillStyle = '#e74c3c';
+                this.ctx.beginPath();
+                this.ctx.moveTo(8, 0);
+                this.ctx.lineTo(-6, -4);
+                this.ctx.lineTo(-6, 4);
+                this.ctx.closePath();
+                this.ctx.fill();
+                this.ctx.restore();
+            }
+
+            drawGoal() {
+                if (!this.goalPosition) return;
+
+                // 将世界坐标转换为像素坐标
+                const pixelX = this.mapOffset.x + (this.goalPosition.x - this.mapData.origin_x) / this.mapData.resolution * this.mapScale;
+                const pixelY = this.mapOffset.y + (this.goalPosition.y - this.mapData.origin_y) / this.mapData.resolution * this.mapScale;
+
+                // 绘制目标点标记
+                this.ctx.fillStyle = '#e74c3c';
+                this.ctx.beginPath();
+                this.ctx.arc(pixelX, pixelY, 10, 0, 2 * Math.PI);
+                this.ctx.fill();
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+
+                // 绘制方向指示器
+                this.ctx.save();
+                this.ctx.translate(pixelX, pixelY);
+                this.ctx.rotate(this.goalPosition.theta);
+                this.ctx.strokeStyle = '#e74c3c';
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, 0);
+                this.ctx.lineTo(15, 0);
+                this.ctx.stroke();
+                this.ctx.restore();
+            }
+
+            handleMapClick(event) {
+                if (!this.mapData) return;
+
+                const rect = this.canvas.getBoundingClientRect();
+                const clickX = event.clientX - rect.left;
+                const clickY = event.clientY - rect.top;
+
+                // 将像素坐标转换为世界坐标
+                const worldX = ((clickX - this.mapOffset.x) / this.mapScale) * this.mapData.resolution + this.mapData.origin_x;
+                const worldY = ((clickY - this.mapOffset.y) / this.mapScale) * this.mapData.resolution + this.mapData.origin_y;
+
+                // 设置目标点（默认朝向为0）
+                this.goalPosition = {
+                    x: worldX,
+                    y: worldY,
+                    theta: 0
+                };
+
+                // 更新显示
+                this.updateGoalPosition();
+                this.drawMap();
+
+                console.log(`点击位置: 像素(${clickX.toFixed(1)}, ${clickY.toFixed(1)}) -> 世界(${worldX.toFixed(2)}, ${worldY.toFixed(2)})`);
+            }
+
+            handleMouseMove(event) {
+                // 可以在这里添加鼠标移动的交互效果
+                // 例如显示坐标信息等
+            }
+
+            updateGoalPosition() {
+                if (this.goalPosition) {
+                    document.getElementById('goalPosition').textContent = 
+                        `X: ${this.goalPosition.x.toFixed(2)}, Y: ${this.goalPosition.y.toFixed(2)}, θ: ${this.goalPosition.theta.toFixed(2)}`;
+                } else {
+                    document.getElementById('goalPosition').textContent = 'X: -, Y: -, θ: -';
+                }
+            }
+
+            async sendGoal() {
+                if (!this.goalPosition) {
+                    alert('请先点击地图设置目标点！');
+                    return;
+                }
+
+                try {
+                    const goalData = {
+                        goal_id: Date.now(), // 使用时间戳作为唯一ID
+                        goal_x: this.goalPosition.x,
+                        goal_y: this.goalPosition.y,
+                        goal_theta: this.goalPosition.theta,
+                        xy_tolerance: 0.1,
+                        yaw_tolerance: 0.05
+                    };
+
+                    const response = await fetch(`${this.serverUrl}/api/robot/navigation_goal`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(goalData)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.Result === 0) {
+                            alert('目标点发送成功！');
+                        } else {
+                            alert(`发送失败: ${result.Error}`);
+                        }
+                    } else {
+                        throw new Error(`HTTP错误: ${response.status}`);
+                    }
+                } catch (error) {
+                    console.error('发送目标点错误:', error);
+                    alert('发送目标点失败，请检查服务器连接！');
+                }
+            }
+
+            async pauseNavigation() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/pause_navigation`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        alert('导航已暂停');
+                    }
+                } catch (error) {
+                    console.error('暂停导航错误:', error);
+                }
+            }
+
+            async resumeNavigation() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/resume_navigation`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        alert('导航已恢复');
+                    }
+                } catch (error) {
+                    console.error('恢复导航错误:', error);
+                }
+            }
+
+            async stopNavigation() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/pause_navigation`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        this.goalPosition = null;
+                        this.updateGoalPosition();
+                        this.drawMap();
+                        alert('导航已停止');
+                    }
+                } catch (error) {
+                    console.error('停止导航错误:', error);
+                }
+            }
+
+            clearGoal() {
+                this.goalPosition = null;
+                this.updateGoalPosition();
+                this.drawMap();
+            }
+
+            updateServerConfig() {
+                const host = document.getElementById('serverHost').value;
+                const port = document.getElementById('serverPort').value;
+                this.serverUrl = `http://${host}:${port}`;
+                this.loadMap(); // 重新加载地图
+            }
+
+            async updateRobotStatus() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/status`);
+                    if (response.ok) {
+                        const status = await response.json();
+                        
+                        // 更新机器人位置
+                        if (status.localization) {
+                            this.robotPosition = {
+                                x: status.localization.x,
+                                y: status.localization.y,
+                                theta: status.localization.theta
+                            };
+                            document.getElementById('robotPosition').textContent = 
+                                `X: ${this.robotPosition.x.toFixed(2)}, Y: ${this.robotPosition.y.toFixed(2)}, θ: ${this.robotPosition.theta.toFixed(2)}`;
+                        }
+                        
+                        // 更新导航状态
+                        if (status.navigation) {
+                            document.getElementById('navStatus').textContent = status.navigation.status;
+                        }
+                        
+                        // 更新电池电量
+                        if (status.battery) {
+                            document.getElementById('batteryLevel').textContent = `${(status.battery.power * 100).toFixed(1)}%`;
+                        }
+                        
+                        this.updateConnectionStatus(true);
+                        this.drawMap(); // 重绘地图以更新机器人位置
+                    }
+                } catch (error) {
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            updateConnectionStatus(connected) {
+                this.isConnected = connected;
+                const statusElement = document.getElementById('connection-status');
+                if (connected) {
+                    statusElement.textContent = '已连接';
+                    statusElement.className = 'connection-status connected';
+                } else {
+                    statusElement.textContent = '未连接';
+                    statusElement.className = 'connection-status disconnected';
+                }
+            }
+
+            startMonitoring() {
+                // 每2秒更新一次状态
+                setInterval(() => {
+                    this.updateRobotStatus();
+                }, 1000);
+            }
+        }
+
+        // 全局函数供按钮调用
+        function updateServerConfig() {
+            window.navigationController.updateServerConfig();
+        }
+
+        function sendGoal() {
+            window.navigationController.sendGoal();
+        }
+
+        function pauseNavigation() {
+            window.navigationController.pauseNavigation();
+        }
+
+        function resumeNavigation() {
+            window.navigationController.resumeNavigation();
+        }
+
+        function stopNavigation() {
+            window.navigationController.stopNavigation();
+        }
+
+        function clearGoal() {
+            window.navigationController.clearGoal();
+        }
+
+        function setGoalAngle() {
+            const angleInput = document.getElementById('goalAngle');
+            const angle = parseInt(angleInput.value) || 0;
+            
+            if (window.navigationController.goalPosition) {
+                window.navigationController.goalPosition.theta = angle * Math.PI / 180;
+                window.navigationController.updateGoalPosition();
+                window.navigationController.updateAngleVisual();
+                window.navigationController.drawMap();
+            }
+        }
+
+        // 监听角度输入框变化
+        document.addEventListener('DOMContentLoaded', () => {
+            const angleInput = document.getElementById('goalAngle');
+            angleInput.addEventListener('input', () => {
+                if (window.navigationController && window.navigationController.goalPosition) {
+                    const angle = parseInt(angleInput.value) || 0;
+                    window.navigationController.goalPosition.theta = angle * Math.PI / 180;
+                    window.navigationController.updateAngleVisual();
+                }
+            });
+        });
+
+        // 初始化控制器
+        document.addEventListener('DOMContentLoaded', () => {
+            window.navigationController = new MapClickNavigation();
+        });
+    </script>
+</body>
+</html>
