@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebUI位置测试</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #ecf0f1; }
+        .test-section { margin: 20px 0; padding: 15px; background: #2c3e50; border-radius: 8px; }
+        .success { color: #2ecc71; }
+        .error { color: #e74c3c; }
+        button { padding: 10px 20px; margin: 5px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #2980b9; }
+        pre { background: #1a252f; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 WebUI 位置显示测试</h1>
+    
+    <div class="test-section">
+        <h2>1️⃣ API测试</h2>
+        <button onclick="testAPI()">测试 /api/robot/position</button>
+        <pre id="api-result">点击按钮测试...</pre>
+    </div>
+    
+    <div class="test-section">
+        <h2>2️⃣ 实时位置显示（模拟WebUI）</h2>
+        <div style="padding: 10px; background: #2c3e50; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between;">
+                <div>
+                    <span style="color: #3498db; font-weight: bold;">📍 机器人位置</span>
+                    <span id="robot-coords" style="color: #ecf0f1; margin-left: 1em;">X: 0.000 | Y: 0.000 | Yaw: 0.000°</span>
+                </div>
+                <div style="color: #95a5a6; font-size: 0.85em;" id="robot-frame">Frame: unknown</div>
+            </div>
+        </div>
+        <button onclick="startAutoUpdate()">开始自动更新（5Hz）</button>
+        <button onclick="stopAutoUpdate()">停止自动更新</button>
+        <p id="update-status">状态：未启动</p>
+    </div>
+    
+    <div class="test-section">
+        <h2>3️⃣ 调试信息</h2>
+        <pre id="debug-log">等待调试信息...</pre>
+    </div>
+
+    <script>
+        let updateInterval = null;
+        let updateCount = 0;
+        
+        async function testAPI() {
+            const resultEl = document.getElementById('api-result');
+            resultEl.textContent = '正在获取...';
+            
+            try {
+                const response = await fetch('/api/robot/position');
+                const data = await response.json();
+                
+                resultEl.innerHTML = `<span class="success">✅ API响应成功</span>\n\n${JSON.stringify(data, null, 2)}`;
+                
+                // 同时更新显示
+                updateDisplay(data);
+            } catch (error) {
+                resultEl.innerHTML = `<span class="error">❌ API请求失败</span>\n\n${error.message}`;
+            }
+        }
+        
+        function updateDisplay(data) {
+            const coordsElement = document.getElementById('robot-coords');
+            const frameElement = document.getElementById('robot-frame');
+            const debugLog = document.getElementById('debug-log');
+            
+            if (!data) {
+                coordsElement.textContent = 'X: -- | Y: -- | Yaw: --°';
+                coordsElement.style.color = '#95a5a6';
+                frameElement.textContent = 'Frame: unknown';
+                frameElement.style.color = '#95a5a6';
+                
+                debugLog.innerHTML += `<span class="error">[${new Date().toLocaleTimeString()}] 无数据</span>\n`;
+                return;
+            }
+            
+            const yawDeg = (data.yaw * 180 / Math.PI).toFixed(1);
+            
+            coordsElement.textContent = `X: ${data.x.toFixed(3)} | Y: ${data.y.toFixed(3)} | Yaw: ${yawDeg}°`;
+            coordsElement.style.color = '#2ecc71';
+            
+            frameElement.textContent = `Frame: ${data.frame_id || 'unknown'}`;
+            frameElement.style.color = '#3498db';
+            
+            debugLog.innerHTML += `<span class="success">[${new Date().toLocaleTimeString()}] 位置更新 #${updateCount}: x=${data.x.toFixed(3)}, y=${data.y.toFixed(3)}, yaw=${yawDeg}°, frame=${data.frame_id}</span>\n`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+        
+        async function fetchAndUpdate() {
+            try {
+                updateCount++;
+                const response = await fetch('/api/robot/position');
+                if (response.ok) {
+                    const data = await response.json();
+                    updateDisplay(data);
+                } else {
+                    document.getElementById('debug-log').innerHTML += `<span class="error">[${new Date().toLocaleTimeString()}] API返回错误: ${response.status}</span>\n`;
+                }
+            } catch (error) {
+                document.getElementById('debug-log').innerHTML += `<span class="error">[${new Date().toLocaleTimeString()}] 获取失败: ${error.message}</span>\n`;
+            }
+        }
+        
+        function startAutoUpdate() {
+            if (updateInterval) {
+                alert('已经在运行了');
+                return;
+            }
+            
+            updateCount = 0;
+            document.getElementById('debug-log').innerHTML = '';
+            document.getElementById('update-status').innerHTML = '<span class="success">状态：运行中（5Hz）</span>';
+            
+            // 5Hz更新
+            updateInterval = setInterval(fetchAndUpdate, 200);
+            fetchAndUpdate(); // 立即执行一次
+        }
+        
+        function stopAutoUpdate() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+                updateInterval = null;
+                document.getElementById('update-status').innerHTML = '<span class="error">状态：已停止</span>';
+            }
+        }
+        
+        // 页面加载时执行一次测试
+        window.addEventListener('load', () => {
+            setTimeout(testAPI, 500);
+        });
+    </script>
+</body>
+</html>
+

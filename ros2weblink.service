@@ -1,0 +1,37 @@
+[Unit]
+Description=ROS2 Web Link Service - Web UI for Tron Robot Navigation
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=guest
+Group=guest
+WorkingDirectory=/home/guest/ROS2WebLink
+
+# ROS2 环境变量
+Environment="ROS_DOMAIN_ID=0"
+Environment="ROS_LOCALHOST_ONLY=0"
+Environment="PYTHONUNBUFFERED=1"
+
+# 启动命令 - 使用 bash 来 source ROS2 环境
+ExecStartPre=/bin/sleep 10
+ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash && source /home/guest/tron_ros2/install/setup.bash && exec python3 -m uvicorn web_server.mapping_nav_server:app --host 0.0.0.0 --port 8800 --log-level info'
+
+# 自动重启配置
+Restart=always
+RestartSec=10
+
+# 日志配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ros2weblink
+
+# 资源限制
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+
+

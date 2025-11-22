@@ -1,0 +1,1655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROS2WebLink Mapping & Navigation API 文档</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f7fa;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 0.5rem;
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .nav-tab {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background: #f0f0f0;
+            color: #666;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-tab:hover {
+            background: #e0e0e0;
+        }
+        
+        .nav-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .section {
+            display: none;
+            background: white;
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 2rem;
+        }
+        
+        .section.active {
+            display: block;
+        }
+        
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 1.5rem;
+            font-size: 2rem;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+        
+        .api-item {
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .api-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .api-header {
+            background: #f6f8fa;
+            padding: 1.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .api-method {
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        
+        .method-get {
+            background: #61affe;
+            color: white;
+        }
+        
+        .method-post {
+            background: #49cc90;
+            color: white;
+        }
+        
+        .method-delete {
+            background: #f93e3e;
+            color: white;
+        }
+        
+        .api-path {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #333;
+            flex: 1;
+        }
+        
+        .api-body {
+            padding: 1.5rem;
+            border-top: 1px solid #e1e4e8;
+            display: none;
+        }
+        
+        .api-item.expanded .api-body {
+            display: block;
+        }
+        
+        .api-description {
+            margin-bottom: 1.5rem;
+            color: #586069;
+            font-size: 1.05rem;
+        }
+        
+        .api-section-title {
+            font-weight: bold;
+            color: #667eea;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            font-size: 1.1rem;
+        }
+        
+        .param-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+        
+        .param-table th {
+            background: #f6f8fa;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #e1e4e8;
+        }
+        
+        .param-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #e1e4e8;
+        }
+        
+        .param-name {
+            font-family: 'Courier New', monospace;
+            color: #e36209;
+            font-weight: 600;
+        }
+        
+        .param-type {
+            color: #0366d6;
+            font-size: 0.9rem;
+        }
+        
+        .param-required {
+            color: #d73a49;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 1rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        
+        .code-block .key {
+            color: #f92672;
+        }
+        
+        .code-block .string {
+            color: #e6db74;
+        }
+        
+        .code-block .number {
+            color: #ae81ff;
+        }
+        
+        .code-block .boolean {
+            color: #66d9ef;
+        }
+        
+        .example-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .example-tab {
+            padding: 0.5rem 1rem;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .example-tab.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .example-content {
+            display: none;
+        }
+        
+        .example-content.active {
+            display: block;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            font-size: 1rem;
+            margin-bottom: 2rem;
+            transition: border-color 0.3s ease;
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        
+        .badge-deprecated {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+        
+        .badge-new {
+            background: #74b9ff;
+            color: #0984e3;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .expand-icon {
+            margin-left: auto;
+            transition: transform 0.3s ease;
+        }
+        
+        .api-item.expanded .expand-icon {
+            transform: rotate(180deg);
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            
+            .container {
+                padding: 0 1rem;
+            }
+            
+            .nav-tabs {
+                flex-direction: column;
+            }
+            
+            .nav-tab {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <h1>🤖 ROS2WebLink API 文档</h1>
+            <p>Mapping & Navigation 机器人建图导航系统 - 完整 API 参考手册</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <input type="text" class="search-box" id="searchBox" placeholder="🔍 搜索 API...">
+        
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-section="overview">📖 概览</button>
+            <button class="nav-tab" data-section="mapping">🗺️ 建图</button>
+            <button class="nav-tab" data-section="maps">📁 地图管理</button>
+            <button class="nav-tab" data-section="navigation">🧭 导航</button>
+            <button class="nav-tab" data-section="robot">🤖 机器人控制</button>
+            <button class="nav-tab" data-section="waypoints">📍 航点路线</button>
+            <button class="nav-tab" data-section="sensors">🔍 传感器</button>
+            <button class="nav-tab" data-section="inspection">✅ 巡检回调</button>
+        </div>
+
+        <!-- 概览 -->
+        <div class="section active" id="overview">
+            <h2>📖 API 概览</h2>
+            <p>本文档提供 ROS2WebLink 系统的完整 API 参考。系统基于 FastAPI 构建，提供 RESTful 风格的 HTTP 接口。</p>
+            
+            <div class="api-section-title">🌐 基础信息</div>
+            <table class="param-table">
+                <tr>
+                    <th>项目</th>
+                    <th>说明</th>
+                </tr>
+                <tr>
+                    <td><span class="param-name">Base URL</span></td>
+                    <td>http://localhost:8800</td>
+                </tr>
+                <tr>
+                    <td><span class="param-name">版本</span></td>
+                    <td>0.1.0</td>
+                </tr>
+                <tr>
+                    <td><span class="param-name">协议</span></td>
+                    <td>HTTP/REST</td>
+                </tr>
+                <tr>
+                    <td><span class="param-name">数据格式</span></td>
+                    <td>JSON</td>
+                </tr>
+            </table>
+
+            <div class="api-section-title">📚 API 分类</div>
+            <ul style="line-height: 2;">
+                <li><strong>🗺️ 建图 (Mapping)</strong>: 启动/停止建图，查询建图状态</li>
+                <li><strong>📁 地图管理 (Maps)</strong>: 列出、加载、删除地图文件</li>
+                <li><strong>🧭 导航 (Navigation)</strong>: 启动/停止导航系统，控制导航行为</li>
+                <li><strong>🤖 机器人控制 (Robot)</strong>: 速度控制、模式切换、位姿设置</li>
+                <li><strong>📍 航点路线 (Waypoints & Routes)</strong>: 记录航点、创建和执行路线</li>
+                <li><strong>🔍 传感器 (Sensors)</strong>: 获取传感器状态、点云数据</li>
+                <li><strong>✅ 巡检回调 (Inspection)</strong>: 导航结果回调通知</li>
+            </ul>
+
+            <div class="api-section-title">🔄 通用响应格式</div>
+            <p>多数 API 返回以下格式的 JSON 响应：</p>
+            <div class="code-block">{
+  <span class="key">"Result"</span>: <span class="number">0</span>,  <span style="color: #75715e;">// 0=成功, 非0=错误</span>
+  <span class="key">"Error"</span>: <span class="string">""</span>   <span style="color: #75715e;">// 错误信息</span>
+}</div>
+
+            <div class="api-section-title">⚠️ 错误码</div>
+            <table class="param-table">
+                <tr>
+                    <th>错误码</th>
+                    <th>说明</th>
+                </tr>
+                <tr>
+                    <td><span class="param-required">0</span></td>
+                    <td>成功</td>
+                </tr>
+                <tr>
+                    <td><span class="param-required">1</span></td>
+                    <td>参数错误或资源不存在</td>
+                </tr>
+                <tr>
+                    <td><span class="param-required">4</span></td>
+                    <td>执行失败</td>
+                </tr>
+                <tr>
+                    <td><span class="param-required">409</span></td>
+                    <td>冲突（如已经在运行）</td>
+                </tr>
+                <tr>
+                    <td><span class="param-required">503</span></td>
+                    <td>服务不可用</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- 建图 APIs -->
+        <div class="section" id="mapping">
+            <h2>🗺️ 建图 API</h2>
+            
+            <!-- Start Mapping -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/mapping/start</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">启动建图流程。将依次启动 Livox 驱动、DLIO、点云转换、Octomap 等节点。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>必填</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">map_name</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>否</td>
+                            <td>地图名称，默认为 map_YYYYMMDD_HHMMSS</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"map_name"</span>: <span class="string">"office_floor1"</span>
+}</div>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"status"</span>: <span class="string">"RUNNING"</span>,
+  <span class="key">"pids"</span>: [<span class="number">12345</span>, <span class="number">12346</span>, <span class="number">12347</span>, <span class="number">12348</span>]
+}</div>
+
+                    <div class="api-section-title">cURL 示例</div>
+                    <div class="code-block">curl -X POST http://localhost:8800/api/mapping/start \
+  -H "Content-Type: application/json" \
+  -d '{"map_name": "office_floor1"}'</div>
+                </div>
+            </div>
+
+            <!-- Stop Mapping -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/mapping/stop</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">停止建图并保存地图。地图将保存为 PGM + YAML 格式（2D）和 PCD 格式（3D）。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>必填</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">save</span></td>
+                            <td><span class="param-type">boolean</span></td>
+                            <td>否</td>
+                            <td>是否保存地图，默认 true</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">map_name</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>否</td>
+                            <td>覆盖启动时的地图名称</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"save"</span>: <span class="boolean">true</span>,
+  <span class="key">"map_name"</span>: <span class="string">"office_final"</span>
+}</div>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"status"</span>: <span class="string">"IDLE"</span>,
+  <span class="key">"save_status"</span>: <span class="string">"saving"</span>,
+  <span class="key">"message"</span>: <span class="string">"Map saving in background"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Mapping Status -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/mapping/status</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">查询当前建图状态和进程信息。</div>
+                    
+                    <div class="api-section-title">响应参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>字段名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">status</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>IDLE | STARTING | RUNNING | STOPPING | ERROR</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">processes</span></td>
+                            <td><span class="param-type">array</span></td>
+                            <td>进程 PID 列表</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">uptime</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>运行时长（秒）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">save_status</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>idle | saving | success | failed</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">save_in_progress</span></td>
+                            <td><span class="param-type">boolean</span></td>
+                            <td>是否正在保存</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"status"</span>: <span class="string">"RUNNING"</span>,
+  <span class="key">"processes"</span>: [<span class="number">12345</span>, <span class="number">12346</span>, <span class="number">12347</span>],
+  <span class="key">"uptime"</span>: <span class="number">125.6</span>,
+  <span class="key">"save_status"</span>: <span class="string">"idle"</span>,
+  <span class="key">"save_in_progress"</span>: <span class="boolean">false</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Clear Cache -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/mapping/clear_cache</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">清除所有建图进程和缓存数据，强制重置系统状态。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"status"</span>: <span class="string">"ok"</span>,
+  <span class="key">"message"</span>: <span class="string">"缓存已清空，所有建图进程已停止"</span>
+}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 地图管理 APIs -->
+        <div class="section" id="maps">
+            <h2>📁 地图管理 API</h2>
+            
+            <!-- Get Real-time Map -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/robot/map</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取实时建图数据（占用栅格地图）。</div>
+                    
+                    <div class="api-section-title">响应参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>字段名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">Result</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td>0=成功, 1=失败</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">Error</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>错误信息</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">resolution</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>地图分辨率（米/像素）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">width</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td>地图宽度（像素）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">height</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td>地图高度（像素）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">origin_x</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>地图原点 X 坐标（米）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">origin_y</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>地图原点 Y 坐标（米）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">data</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>Base64 编码的地图数据</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"Result"</span>: <span class="number">0</span>,
+  <span class="key">"Error"</span>: <span class="string">""</span>,
+  <span class="key">"resolution"</span>: <span class="number">0.05</span>,
+  <span class="key">"width"</span>: <span class="number">384</span>,
+  <span class="key">"height"</span>: <span class="number">384</span>,
+  <span class="key">"origin_x"</span>: <span class="number">-10.0</span>,
+  <span class="key">"origin_y"</span>: <span class="number">-10.0</span>,
+  <span class="key">"data"</span>: <span class="string">"AAAA..."</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- List Maps -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/maps/list</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">列出所有已保存的地图文件。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"maps"</span>: [
+    {
+      <span class="key">"name"</span>: <span class="string">"office_floor1"</span>,
+      <span class="key">"size"</span>: <span class="number">147456</span>,
+      <span class="key">"modified"</span>: <span class="number">1700000000.0</span>
+    }
+  ]
+}</div>
+                </div>
+            </div>
+
+            <!-- Load Map -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/maps/{map_name}/load</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">从磁盘加载指定的地图文件。</div>
+                    
+                    <div class="api-section-title">路径参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">map_name</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>地图名称（不含扩展名）</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">示例</div>
+                    <div class="code-block">GET /api/maps/office_floor1/load</div>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"width"</span>: <span class="number">384</span>,
+  <span class="key">"height"</span>: <span class="number">384</span>,
+  <span class="key">"resolution"</span>: <span class="number">0.05</span>,
+  <span class="key">"origin_x"</span>: <span class="number">-10.0</span>,
+  <span class="key">"origin_y"</span>: <span class="number">-10.0</span>,
+  <span class="key">"data"</span>: <span class="string">"AAAA..."</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Get Map Registry -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/maps/registry</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取地图注册表，包含 PCD + PGM/YAML 配对信息。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"available"</span>: <span class="boolean">true</span>,
+  <span class="key">"default_map"</span>: <span class="string">"default"</span>,
+  <span class="key">"total"</span>: <span class="number">3</span>,
+  <span class="key">"maps"</span>: [
+    {
+      <span class="key">"name"</span>: <span class="string">"office"</span>,
+      <span class="key">"description"</span>: <span class="string">"Office building map"</span>,
+      <span class="key">"pcd_file"</span>: <span class="string">"/path/to/office.pcd"</span>,
+      <span class="key">"yaml_file"</span>: <span class="string">"/path/to/office.yaml"</span>,
+      <span class="key">"pgm_file"</span>: <span class="string">"/path/to/office.pgm"</span>,
+      <span class="key">"enabled"</span>: <span class="boolean">true</span>,
+      <span class="key">"is_default"</span>: <span class="boolean">true</span>,
+      <span class="key">"valid"</span>: <span class="boolean">true</span>
+    }
+  ]
+}</div>
+                </div>
+            </div>
+
+            <!-- Delete Map -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-delete">DELETE</span>
+                    <span class="api-path">/api/maps/{map_name}</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">删除指定的地图文件（PGM + YAML）。</div>
+                    
+                    <div class="api-section-title">路径参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">map_name</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>地图名称</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"deleted"</span>: [<span class="string">"office.yaml"</span>, <span class="string">"office.pgm"</span>]
+}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 导航 APIs -->
+        <div class="section" id="navigation">
+            <h2>🧭 导航 API</h2>
+            
+            <!-- Start Navigation -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/navigation/start</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">启动导航系统（DLIO + Nav2 + tron_commander）。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>必填</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">map_name</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>否</td>
+                            <td>地图文件名（不含扩展名），默认 final_test_map</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"map_name"</span>: <span class="string">"office_floor1"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Stop Navigation -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/navigation/stop</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">停止导航系统，终止所有导航相关进程。</div>
+                </div>
+            </div>
+
+            <!-- Cancel Navigation -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/navigation/cancel</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">取消当前导航目标，停止执行当前轨迹。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"success"</span>: <span class="boolean">true</span>,
+  <span class="key">"message"</span>: <span class="string">"Navigation cancelled"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Navigation Status -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/navigation/status</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取导航系统状态。</div>
+                    
+                    <div class="api-section-title">响应参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>字段名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">status</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>IDLE | STARTING | RUNNING | ERROR</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">processes</span></td>
+                            <td><span class="param-type">array</span></td>
+                            <td>进程 PID 列表</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">uptime</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>运行时长（秒）</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 机器人控制 APIs -->
+        <div class="section" id="robot">
+            <h2>🤖 机器人控制 API</h2>
+            
+            <!-- Robot Status -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/robot/status</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取机器人实时状态，包括电池、定位、导航状态。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"robot_info"</span>: { ... },
+  <span class="key">"battery"</span>: {
+    <span class="key">"power"</span>: <span class="number">85.5</span>,
+    <span class="key">"charging"</span>: <span class="boolean">false</span>
+  },
+  <span class="key">"localization"</span>: {
+    <span class="key">"status"</span>: <span class="number">0</span>,
+    <span class="key">"x"</span>: <span class="number">1.234</span>,
+    <span class="key">"y"</span>: <span class="number">5.678</span>,
+    <span class="key">"theta"</span>: <span class="number">0.785</span>,
+    <span class="key">"reliability"</span>: <span class="number">0.95</span>
+  },
+  <span class="key">"navigation"</span>: {
+    <span class="key">"status"</span>: <span class="string">"GOING"</span>,
+    <span class="key">"blocked"</span>: <span class="boolean">false</span>,
+    <span class="key">"goal_id"</span>: <span class="number">0</span>
+  }
+}</div>
+                </div>
+            </div>
+
+            <!-- Robot Position -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/robot/position</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取机器人在地图坐标系中的实时位置。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"x"</span>: <span class="number">1.234</span>,
+  <span class="key">"y"</span>: <span class="number">5.678</span>,
+  <span class="key">"yaw"</span>: <span class="number">0.785</span>,
+  <span class="key">"frame_id"</span>: <span class="string">"map"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Set Initial Pose -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/robot/set_initial_pose</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">设置机器人初始位姿（用于 GICP 定位器）。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>必填</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">x</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>X 坐标（米）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">y</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>Y 坐标（米）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">z</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>否</td>
+                            <td>Z 坐标（米），默认 0.0</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">yaw</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>否</td>
+                            <td>偏航角（弧度），默认 0.0</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"x"</span>: <span class="number">0.0</span>,
+  <span class="key">"y"</span>: <span class="number">0.0</span>,
+  <span class="key">"z"</span>: <span class="number">0.0</span>,
+  <span class="key">"yaw"</span>: <span class="number">0.0</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Set Navigation Goal -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/robot/navigation_goal</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">设置导航目标点，机器人将自动规划路径并导航到目标位置。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>必填</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">goal_x</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>目标 X 坐标（米）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">goal_y</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>目标 Y 坐标（米）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">goal_theta</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>否</td>
+                            <td>目标偏航角（弧度），默认 0.0</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">goal_id</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td>否</td>
+                            <td>目标点 ID，默认 0</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">xy_tolerance</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>否</td>
+                            <td>位置容差（米），默认 0.1</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">yaw_tolerance</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>否</td>
+                            <td>角度容差（弧度），默认 0.05</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"goal_x"</span>: <span class="number">5.0</span>,
+  <span class="key">"goal_y"</span>: <span class="number">3.0</span>,
+  <span class="key">"goal_theta"</span>: <span class="number">1.57</span>,
+  <span class="key">"goal_id"</span>: <span class="number">1</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Send Velocity Command -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/robot/cmd_vel</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">发送速度控制命令（机器人 SDK）。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">vel_x</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>前进速度（m/s）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">vel_y</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>侧向速度（m/s）</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">vel_theta</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>旋转速度（rad/s）</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"vel_x"</span>: <span class="number">0.5</span>,
+  <span class="key">"vel_y"</span>: <span class="number">0.0</span>,
+  <span class="key">"vel_theta"</span>: <span class="number">0.0</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Robot Modes -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/robot/mode/{mode}</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">切换机器人运动模式。</div>
+                    
+                    <div class="api-section-title">可用模式</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>路径</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">/api/robot/mode/stand</span></td>
+                            <td>站立模式</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">/api/robot/mode/walk</span></td>
+                            <td>行走模式</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">/api/robot/mode/sit</span></td>
+                            <td>坐下模式</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">/api/robot/mode/recover</span></td>
+                            <td>恢复模式（从跌倒站起）</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Emergency Stop -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/robot/emergency_stop</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">紧急停止机器人所有运动。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"status"</span>: <span class="string">"ok"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Body Height -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/robot/body_height</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">调整机器人身体高度（每次 ±5cm）。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">direction</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td>1=升高, -1=降低</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"direction"</span>: <span class="number">1</span>
+}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 航点路线 APIs -->
+        <div class="section" id="waypoints">
+            <h2>📍 航点路线 API</h2>
+            
+            <!-- Record Waypoint -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/waypoints/record</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">记录机器人当前位置为航点。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">type</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>normal | stair_enable | stair_disable</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"x"</span>: <span class="number">1.234</span>,
+  <span class="key">"y"</span>: <span class="number">5.678</span>,
+  <span class="key">"yaw"</span>: <span class="number">0.785</span>,
+  <span class="key">"type"</span>: <span class="string">"normal"</span>,
+  <span class="key">"timestamp"</span>: <span class="number">1700000000.0</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Trajectory Recording -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/trajectory/start</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">开始自动记录轨迹，按指定间隔记录航点。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">interval</span></td>
+                            <td><span class="param-type">float</span></td>
+                            <td>记录间隔（秒），默认 1.0</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/trajectory/stop</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">停止记录轨迹，返回记录的所有航点。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"waypoints"</span>: [...],
+  <span class="key">"count"</span>: <span class="number">25</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- List Routes -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/routes</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取所有已保存的巡逻路线。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"routes"</span>: [
+    {
+      <span class="key">"id"</span>: <span class="string">"route_001"</span>,
+      <span class="key">"name"</span>: <span class="string">"Floor 1 Patrol"</span>,
+      <span class="key">"waypoints"</span>: [...]
+    }
+  ]
+}</div>
+                </div>
+            </div>
+
+            <!-- Create Route -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/routes</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">创建新的巡逻路线。</div>
+                    
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"name"</span>: <span class="string">"Floor 1 Patrol"</span>,
+  <span class="key">"waypoints"</span>: [
+    {
+      <span class="key">"x"</span>: <span class="number">1.0</span>,
+      <span class="key">"y"</span>: <span class="number">2.0</span>,
+      <span class="key">"yaw"</span>: <span class="number">0.0</span>,
+      <span class="key">"type"</span>: <span class="string">"normal"</span>
+    }
+  ]
+}</div>
+                </div>
+            </div>
+
+            <!-- Execute Route -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/routes/{route_id}/execute</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">执行指定的巡逻路线。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"status"</span>: <span class="string">"queued"</span>
+}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 传感器 APIs -->
+        <div class="section" id="sensors">
+            <h2>🔍 传感器状态 API</h2>
+            
+            <!-- Sensor Status -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/sensors/status</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取传感器健康状态，包括 Livox 激光雷达和建图系统。</div>
+                </div>
+            </div>
+
+            <!-- DLIO Status -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/dlio/status</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取 DLIO (Direct LiDAR-Inertial Odometry) 系统状态。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"ready"</span>: <span class="boolean">true</span>,
+  <span class="key">"subscribed"</span>: <span class="boolean">true</span>,
+  <span class="key">"message"</span>: <span class="string">"DLIO is ready and subscribed"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Get Costmap -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/costmap/{kind}</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取代价地图数据（global 或 local）。</div>
+                    
+                    <div class="api-section-title">路径参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">kind</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td>global 或 local</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Scan Points -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/robot/scan_points</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取 2D 激光扫描点云（在地图坐标系）用于可视化。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"points"</span>: [
+    {<span class="key">"x"</span>: <span class="number">1.2</span>, <span class="key">"y"</span>: <span class="number">3.4</span>},
+    ...
+  ]
+}</div>
+                </div>
+            </div>
+
+            <!-- Matching Clouds -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/robot/matching_clouds</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取点云匹配过程可视化数据（TEASER++、粗匹配、精匹配）。</div>
+                    
+                    <div class="api-section-title">响应参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>字段名</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">teaser_source</span></td>
+                            <td>TEASER++ 源点云</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">teaser_target</span></td>
+                            <td>TEASER++ 目标点云</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">rough_source</span></td>
+                            <td>粗匹配源点云</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">rough_target</span></td>
+                            <td>粗匹配目标点云</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">refine_source</span></td>
+                            <td>精匹配源点云</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">refine_target</span></td>
+                            <td>精匹配目标点云</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Localizer Logs -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/localizer/logs</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取定位器最近的日志信息。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"logs"</span>: [
+    <span class="string">"粗匹配分数: 0.85"</span>,
+    <span class="string">"精匹配分数: 0.92"</span>,
+    ...
+  ]
+}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 巡检回调 APIs -->
+        <div class="section" id="inspection">
+            <h2>✅ 巡检回调 API</h2>
+            
+            <!-- Inspection Callback -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-post">POST</span>
+                    <span class="api-path">/api/inspection/callback</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">导航任务完成后的回调通知接口。用于巡检系统接收导航结果。</div>
+                    
+                    <div class="api-section-title">请求参数</div>
+                    <table class="param-table">
+                        <tr>
+                            <th>参数名</th>
+                            <th>类型</th>
+                            <th>必填</th>
+                            <th>说明</th>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">robot_id</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>机器人 ID</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">task_id</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>任务 ID</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">execution_status</span></td>
+                            <td><span class="param-type">string</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>SUCCEEDED | FAILED | success</td>
+                        </tr>
+                        <tr>
+                            <td><span class="param-name">execution_time</span></td>
+                            <td><span class="param-type">int</span></td>
+                            <td><span class="param-required">是</span></td>
+                            <td>13位时间戳（毫秒）</td>
+                        </tr>
+                    </table>
+
+                    <div class="api-section-title">请求示例</div>
+                    <div class="code-block">{
+  <span class="key">"robot_id"</span>: <span class="number">1</span>,
+  <span class="key">"task_id"</span>: <span class="number">12345</span>,
+  <span class="key">"execution_status"</span>: <span class="string">"SUCCEEDED"</span>,
+  <span class="key">"execution_time"</span>: <span class="number">1700000000000</span>
+}</div>
+
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"code"</span>: <span class="number">200</span>,
+  <span class="key">"msg"</span>: <span class="string">"success"</span>
+}</div>
+                </div>
+            </div>
+
+            <!-- Navigation Status for Callback -->
+            <div class="api-item">
+                <div class="api-header">
+                    <span class="api-method method-get">GET</span>
+                    <span class="api-path">/api/inspection/nav_status</span>
+                    <span class="expand-icon">▼</span>
+                </div>
+                <div class="api-body">
+                    <div class="api-description">获取导航状态，判断是否可以触发回调。</div>
+                    
+                    <div class="api-section-title">响应示例</div>
+                    <div class="code-block">{
+  <span class="key">"code"</span>: <span class="number">200</span>,
+  <span class="key">"msg"</span>: <span class="string">"success"</span>,
+  <span class="key">"nav_status"</span>: <span class="string">"SUCCEEDED"</span>,
+  <span class="key">"can_trigger_callback"</span>: <span class="boolean">true</span>,
+  <span class="key">"current_task_id"</span>: <span class="number">12345</span>,
+  <span class="key">"timestamp"</span>: <span class="number">1700000000000</span>
+}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>ROS2WebLink API 文档 © 2024 | 版本 0.1.0</p>
+        <p>文档生成时间: <span id="docTime"></span></p>
+    </div>
+
+    <script>
+        // 导航标签切换
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+                
+                tab.classList.add('active');
+                const section = tab.getAttribute('data-section');
+                document.getElementById(section).classList.add('active');
+            });
+        });
+
+        // API 项目展开/折叠
+        document.querySelectorAll('.api-header').forEach(header => {
+            header.addEventListener('click', () => {
+                header.parentElement.classList.toggle('expanded');
+            });
+        });
+
+        // 搜索功能
+        const searchBox = document.getElementById('searchBox');
+        searchBox.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            document.querySelectorAll('.api-item').forEach(item => {
+                const path = item.querySelector('.api-path').textContent.toLowerCase();
+                const description = item.querySelector('.api-description')?.textContent.toLowerCase() || '';
+                
+                if (path.includes(query) || description.includes(query)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+
+        // 设置文档生成时间
+        document.getElementById('docTime').textContent = new Date().toLocaleString('zh-CN');
+
+        // 默认展开第一个 API
+        document.querySelectorAll('.section').forEach(section => {
+            const firstApi = section.querySelector('.api-item');
+            if (firstApi) {
+                firstApi.classList.add('expanded');
+            }
+        });
+    </script>
+</body>
+</html>
+
+

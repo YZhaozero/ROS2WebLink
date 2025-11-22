@@ -10,12 +10,19 @@ from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import Twist, PoseStamped, Point, Quaternion
 from nav2_msgs.action._navigate_to_pose import NavigateToPose_FeedbackMessage
-from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
+from sensor_msgs.msg import PointCloud2
+import sensor_msgs_py.point_cloud2 as pc2
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+
+# 导入RobotSDKBridge
+try:
+    from robot_sdk_bridge import RobotSDKBridge
+except ImportError:
+    RobotSDKBridge = None
 
 # ---------------- ROS2 Node ----------------
 class RosBridge(Node):
@@ -26,27 +33,53 @@ class RosBridge(Node):
         self.latest_map = None
         self.latest_odom = None
         self.nav_feedback = None
-        self.latest_battery = None
         self.latest_nav_status = None
         self.latest_navigation_status = None
+        
+        # 匹配结果点云缓存
+        self.teaser_aligned_cloud = None
+        self.rough_aligned_cloud = None
+        self.refine_aligned_cloud = None
         
         # 当前任务ID缓存
         self.current_task_id = None
 
-        # 订阅话题
+        # 初始化RobotSDKBridge
+        self.robot_sdk = None
+        if RobotSDKBridge is not None:
+            self.robot_sdk = RobotSDKBridge(url="ws://0.0.0.0:5000")
+            try:
+                self.robot_sdk.start(background=True)
+                print("RobotSDKBridge initialized successfully")
+            except Exception as e:
+                print(f"Failed to initialize RobotSDKBridge: {e}")
+                self.robot_sdk = None
+
+        # 订阅话题 - 使用TRANSIENT_LOCAL QoS订阅地图
+        from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
+        map_qos = QoSProfile(
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            depth=1
+        )
         self.create_subscription(
-            OccupancyGrid, "/map", self.map_callback, 10)
+            OccupancyGrid, "/map", self.map_callback, map_qos)
         self.create_subscription(
             Odometry, "/tron_commander/odom", self.odom_callback, 10)
-            # Odometry, "/dlio/odom_node/odom", self.odom_callback, 10)
-        self.create_subscription(
-            BatteryState, "/battery", self.battery_callback, 10)
         self.create_subscription(
             String, "/nav_status", self.nav_status_callback, 10)
         self.create_subscription(
             String, "/navigation_status", self.navigation_status_callback, 10)
         self.create_subscription(
             NavigateToPose_FeedbackMessage,'/navigate_to_pose/_action/feedback', self.nav2_feedback_callback,10)
+        
+        # 订阅匹配结果点云话题
+        self.create_subscription(
+            PointCloud2, "/teaser_aligned_cloud", self.teaser_cloud_callback, 10)
+        self.create_subscription(
+            PointCloud2, "/rough_aligned_cloud", self.rough_cloud_callback, 10)
+        self.create_subscription(
+            PointCloud2, "/refine_aligned_cloud", self.refine_cloud_callback, 10)
 
         # 发布器
         self.goal_pub = self.create_publisher(PoseStamped, "/goal", 10)
@@ -58,16 +91,32 @@ class RosBridge(Node):
 
     # -------- 回调函数 --------
     def map_callback(self, msg: OccupancyGrid):
-        self.latest_map = msg
+        try:
+            # 验证消息是否为有效的OccupancyGrid
+            if hasattr(msg, 'info') and hasattr(msg, 'data'):
+                self.latest_map = msg
+            else:
+                self.get_logger().warning("Received invalid map message, ignoring")
+        except Exception as e:
+            self.get_logger().error(f"Error in map_callback: {e}")
 
     def odom_callback(self, msg: Odometry):
         self.latest_odom = msg
 
     def nav2_feedback_callback(self, msg: NavigateToPose_FeedbackMessage):
         self.nav_feedback = msg
-
-    def battery_callback(self, msg: BatteryState):
-        self.latest_battery = msg
+    
+    def teaser_cloud_callback(self, msg: PointCloud2):
+        """TEASER++配准结果点云回调"""
+        self.teaser_aligned_cloud = msg
+    
+    def rough_cloud_callback(self, msg: PointCloud2):
+        """GICP粗匹配结果点云回调"""
+        self.rough_aligned_cloud = msg
+    
+    def refine_cloud_callback(self, msg: PointCloud2):
+        """GICP精匹配结果点云回调"""
+        self.refine_aligned_cloud = msg
 
     def nav_status_callback(self, msg: String):
         """
@@ -133,19 +182,23 @@ class RosBridge(Node):
     def get_map_json(self):
         if not self.latest_map:
             return {"Result": 1, "Error": "map not received yet"}
-        m = self.latest_map
-        return {
-            "Result": 0,
-            "Error": "",
-            "name": "map",
-            "resolution": float(m.info.resolution),
-            "width": int(m.info.width),
-            "height": int(m.info.height),
-            "origin_x": float(m.info.origin.position.x),
-            "origin_y": float(m.info.origin.position.y),
-            "origin_yaw": 0.0,
-            "data": base64.b64encode(bytes([d & 0xFF for d in m.data])).decode("utf-8")
-        }
+        try:
+            m = self.latest_map
+            return {
+                "Result": 0,
+                "Error": "",
+                "name": "map",
+                "resolution": float(m.info.resolution),
+                "width": int(m.info.width),
+                "height": int(m.info.height),
+                "origin_x": float(m.info.origin.position.x),
+                "origin_y": float(m.info.origin.position.y),
+                "origin_yaw": 0.0,
+                "data": base64.b64encode(bytes([d & 0xFF for d in m.data])).decode("utf-8")
+            }
+        except Exception as e:
+            self.get_logger().error(f"Error processing map data: {e}")
+            return {"Result": 1, "Error": f"Failed to process map data: {str(e)}"}
 
     def get_navigation_status_json(self):
         """获取导航状态的JSON数据"""
@@ -251,6 +304,7 @@ def init_ros_node():
         t.start()
         print("ROS节点已初始化")
 
+## curl -X GET "http://localhost:8800/api/robot/map"
 @app.get("/api/robot/map")
 async def get_map():
     """获取地图数据"""
@@ -269,12 +323,17 @@ async def get_status():
             orientation = ros_node.latest_odom.pose.pose.orientation
             theta = ros_node.quaternion_to_yaw(orientation)
         
+        # 获取电池电量信息 - 使用robot_sdk而不是latest_battery
+        battery_power = 0.0
+        if ros_node.robot_sdk and ros_node.robot_sdk.robot_info:
+            battery_info = ros_node.robot_sdk.robot_info.get("battery")
+            if battery_info is not None:
+                battery_power = float(battery_info)
+        
         return {
             "battery": {
-                "power": float(ros_node.latest_battery.percentage)
-                if ros_node.latest_battery else 0.0,
-                "charging": ros_node.latest_battery.power_supply_status == 1
-                if ros_node.latest_battery else False
+                "power": battery_power,
+                "charging": False  # 暂时设置为False，可根据需要从robot_sdk获取充电状态
             },
             "localization": {
                 "status": 0 if ros_node.latest_odom else 1,
@@ -474,6 +533,64 @@ async def get_nav_status_for_callback():
             "msg": "No nav_status data available from ROS"
         }
 
+@app.get("/api/robot/matching_clouds")
+async def get_matching_clouds():
+    """
+    获取重定位匹配结果点云数据
+    返回TEASER++全局配准、GICP粗匹配和精匹配的点云数据
+    """
+    if not ros_node:
+        return {"Result": 1, "Error": "ROS node not initialized"}
+    
+    result = {
+        "Result": 0,
+        "Error": "",
+        "teaser_cloud": None,
+        "rough_cloud": None,
+        "refine_cloud": None
+    }
+    
+    try:
+        # 转换TEASER++点云
+        if ros_node.teaser_aligned_cloud:
+            teaser_points = []
+            for point in pc2.read_points(ros_node.teaser_aligned_cloud, 
+                                         field_names=("x", "y", "z"), skip_nans=True):
+                teaser_points.append({"x": float(point[0]), "y": float(point[1]), "z": float(point[2])})
+            result["teaser_cloud"] = {
+                "points": teaser_points,
+                "count": len(teaser_points),
+                "frame_id": ros_node.teaser_aligned_cloud.header.frame_id
+            }
+        
+        # 转换GICP粗匹配点云
+        if ros_node.rough_aligned_cloud:
+            rough_points = []
+            for point in pc2.read_points(ros_node.rough_aligned_cloud,
+                                        field_names=("x", "y", "z"), skip_nans=True):
+                rough_points.append({"x": float(point[0]), "y": float(point[1]), "z": float(point[2])})
+            result["rough_cloud"] = {
+                "points": rough_points,
+                "count": len(rough_points),
+                "frame_id": ros_node.rough_aligned_cloud.header.frame_id
+            }
+        
+        # 转换GICP精匹配点云
+        if ros_node.refine_aligned_cloud:
+            refine_points = []
+            for point in pc2.read_points(ros_node.refine_aligned_cloud,
+                                        field_names=("x", "y", "z"), skip_nans=True):
+                refine_points.append({"x": float(point[0]), "y": float(point[1]), "z": float(point[2])})
+            result["refine_cloud"] = {
+                "points": refine_points,
+                "count": len(refine_points),
+                "frame_id": ros_node.refine_aligned_cloud.header.frame_id
+            }
+        
+        return result
+    except Exception as e:
+        return {"Result": 2, "Error": f"Failed to process point clouds: {str(e)}"}
+
 
 # ---------------- Main ----------------
 def main():
@@ -481,7 +598,7 @@ def main():
     
     parser = argparse.ArgumentParser(description="ROS2 Web Server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--port", type=int, default=8800, help="Port to bind to")
     
     args = parser.parse_args()
     

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tron 机器人建图导航控制台</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <!-- Three.js 库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  </head>
+  <body>
+    <header class="top-bar">
+      <h1>Tron 机器人建图导航控制台</h1>
+      <span id="status-indicator">后端初始化中...</span>
+    </header>
+    <main class="layout">
+      <section class="map-panel">
+        <header>
+          <h2>环境地图</h2>
+          <div class="map-actions">
+            <label class="costmap-select">
+              代价图
+              <select id="select-costmap-kind">
+                <option value="local">局部</option>
+                <option value="global">全局</option>
+              </select>
+            </label>
+            <label class="costmap-select" style="margin-left: 10px;">
+              <input type="checkbox" id="checkbox-show-pointcloud" />
+              显示2D点云
+            </label>
+            <button id="btn-refresh-costmap">刷新代价图</button>
+            <button id="btn-refresh-map">刷新地图</button>
+          </div>
+        </header>
+        
+        <!-- 机器人坐标显示面板 -->
+        <div class="robot-position-panel" style="margin: 0.5em 0; padding: 0.5em 1em; background: #2c3e50; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; font-family: monospace;">
+          <div style="flex: 1;">
+            <span style="color: #3498db; font-weight: bold;">📍 机器人位置</span>
+            <span id="robot-coords" style="color: #ecf0f1; margin-left: 1em;">X: 0.000 | Y: 0.000 | Yaw: 0.000°</span>
+          </div>
+          <div style="color: #95a5a6; font-size: 0.85em;" id="robot-frame">Frame: unknown</div>
+        </div>
+        
+        <canvas id="map-canvas" width="900" height="600"></canvas>
+        <!-- 日志面板 -->
+        <div class="log-container" style="margin-top: 1em; display: grid; grid-template-columns: 1fr 1fr; gap: 1em;">
+          <!-- 定位日志 -->
+          <div class="log-panel" style="padding: 1em; background: #2c3e50; border-radius: 4px;">
+            <h3 style="margin: 0 0 0.5em 0; color: #ecf0f1; display: flex; align-items: center; gap: 0.3em;">
+              <span>📍</span> 
+              <span>定位日志</span>
+              <span style="font-size: 0.75em; color: #95a5a6; font-weight: normal;">(Localizer)</span>
+            </h3>
+            <div id="localizer-log" style="max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background: #1a252f; padding: 0.5em; border-radius: 4px; color: #bdc3c7; line-height: 1.4;">
+              <div>等待定位数据...</div>
+            </div>
+            <div style="margin-top: 0.5em; display: flex; gap: 0.5em;">
+              <button id="btn-refresh-localizer-log" style="flex: 1; padding: 0.3em; font-size: 0.85em;">🔄 刷新</button>
+              <button id="btn-clear-localizer-log" style="flex: 1; padding: 0.3em; font-size: 0.85em;">🗑️ 清除</button>
+              <button id="btn-toggle-localizer-autoscroll" style="flex: 1; padding: 0.3em; font-size: 0.85em; background-color: #95a5a6;">✗ 自动滚动</button>
+            </div>
+          </div>
+          
+          <!-- 导航日志 -->
+          <div class="log-panel" style="padding: 1em; background: #2c3e50; border-radius: 4px;">
+            <h3 style="margin: 0 0 0.5em 0; color: #ecf0f1; display: flex; align-items: center; gap: 0.3em;">
+              <span>🧭</span>
+              <span>导航日志</span>
+              <span style="font-size: 0.75em; color: #95a5a6; font-weight: normal;">(Nav2)</span>
+            </h3>
+            <div id="navigation-log" style="max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background: #1a252f; padding: 0.5em; border-radius: 4px; color: #bdc3c7; line-height: 1.4;">
+              <div>等待导航数据...</div>
+            </div>
+            <div style="margin-top: 0.5em; display: flex; gap: 0.5em;">
+              <button id="btn-refresh-navigation-log" style="flex: 1; padding: 0.3em; font-size: 0.85em;">🔄 刷新</button>
+              <button id="btn-clear-navigation-log" style="flex: 1; padding: 0.3em; font-size: 0.85em;">🗑️ 清除</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 传感器状态日志 -->
+        <div class="log-panel" style="margin-top: 1em; padding: 1em; background: #2c3e50; border-radius: 4px;">
+          <h3 style="margin: 0 0 0.5em 0; color: #ecf0f1; display: flex; align-items: center; gap: 0.3em;">
+            <span>🔍</span>
+            <span>传感器状态</span>
+            <span style="font-size: 0.75em; color: #95a5a6; font-weight: normal;">(LiDAR & IMU)</span>
+          </h3>
+          <div id="sensor-log" style="max-height: 100px; overflow-y: auto; font-family: monospace; font-size: 0.8em; background: #1a252f; padding: 0.5em; border-radius: 4px; color: #bdc3c7; line-height: 1.4;">
+            <div>等待传感器数据...</div>
+          </div>
+        </div>
+      </section>
+      <aside class="control-panel">
+        <section>
+          <h3>🗺️ 地图管理</h3>
+          <label>
+            当前地图
+            <select id="select-map-name">
+              <option value="">-- 选择地图 --</option>
+            </select>
+          </label>
+          <div class="button-row">
+            <button id="btn-refresh-maps">刷新列表</button>
+            <button id="btn-edit-map" class="btn-primary" onclick="window.location.href='/static/map_editor.html' + (document.getElementById('select-map-name').value ? '?map=' + encodeURIComponent(document.getElementById('select-map-name').value) : '')">✏️ 编辑地图</button>
+            <button id="btn-delete-map" class="danger">删除地图</button>
+          </div>
+          <label>
+            新建地图名称
+            <input id="input-new-map-name" type="text" placeholder="map_2025" />
+          </label>
+        </section>
+
+        <section>
+          <h3>建图模式</h3>
+          <div class="button-row">
+            <button id="btn-start-mapping">开始建图</button>
+            <button id="btn-stop-mapping">停止并保存</button>
+          </div>
+          <button id="btn-clear-cache" class="danger" style="width: 100%; margin-top: 0.5em;">🗑️ 清空缓存</button>
+          <div id="mapping-status" class="status-card">建图状态：未启动</div>
+          <div id="mapping-processes" class="status-card subtle" style="font-size: 0.85em;">
+            进程状态：--
+          </div>
+          <div id="sensor-status" class="status-card">传感器：检测中...</div>
+        </section>
+
+        <section>
+          <h3>导航系统</h3>
+          <div class="button-row">
+            <button id="btn-start-navigation">启动导航</button>
+            <button id="btn-stop-navigation">停止导航</button>
+          </div>
+          <div class="button-row" style="margin-top: 0.5em;">
+            <button id="btn-manual-reloc" class="btn-primary" onclick="window.open('/manual_reloc', '_blank')" style="width: 100%; background: #e67e22; border-color: #d35400;">
+              🎯 手动定位工具
+            </button>
+          </div>
+          <div id="navigation-status" class="status-card">导航状态：未启动</div>
+          <div id="navigation-processes" class="status-card subtle" style="font-size: 0.85em;">
+            进程状态：--
+          </div>
+          <div id="navigation-map-info" class="status-card" style="font-size: 0.85em; background: #2c3e50; border-left: 3px solid #3498db;">
+            <div style="margin-bottom: 0.3em;"><strong>🗺️ 当前地图</strong></div>
+            <div id="map-info-content" style="color: #bdc3c7; line-height: 1.5; font-family: monospace;">
+              <div>未启动导航</div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3>🎯 定位初始化</h3>
+          <div class="button-row">
+            <button id="btn-set-initial-pose" class="btn-primary">设置初始位姿</button>
+            <button id="btn-trigger-global-relocalization" style="background: #e74c3c;">🌍 全局重定位</button>
+          </div>
+          <p class="hint" style="font-size: 0.85em; margin-top: 0.5em; line-height: 1.4;">
+            <strong>设置初始位姿</strong>：在地图上点击指定位置和方向<br>
+            <strong>全局重定位</strong>：自动用Scan Context找位置（无需点击）
+          </p>
+        </section>
+
+        <section>
+          <h3>🎯 导航目标</h3>
+          <button id="btn-set-nav-goal" class="btn-primary">设置导航目标</button>
+          <div class="button-row" style="margin-top: 0.5em;">
+            <button id="btn-cancel-nav-goal" class="danger">取消导航目标</button>
+            <button id="btn-stop-nav" class="danger">停止导航</button>
+          </div>
+          <p class="hint" style="font-size: 0.85em; margin-top: 0.5em;">点击按钮后，在地图上点击设置导航目标点</p>
+        </section>
+
+        <section>
+          <h3>机器人模式</h3>
+          <div class="button-grid">
+            <button id="btn-stand">站立</button>
+            <button id="btn-walk">行走</button>
+            <button id="btn-sit">蹲下</button>
+            <button id="btn-recover">倒地爬起</button>
+            <button id="btn-stair-on">楼梯模式</button>
+            <button id="btn-stair-off">退出楼梯</button>
+            <button id="btn-emg-stop" class="danger">紧急停止</button>
+          </div>
+          <div id="robot-info" class="status-card">机器人状态：未知</div>
+        </section>
+
+        <section>
+          <h3>高度调节</h3>
+          <div class="button-grid" style="grid-template-columns: 1fr 1fr;">
+            <button id="btn-height-up">⬆️ 升高 (+5cm)</button>
+            <button id="btn-height-down">⬇️ 降低 (-5cm)</button>
+          </div>
+          <div class="status-card subtle">每次调节机身高度 5cm</div>
+        </section>
+
+        <section>
+          <h3>🕹️ 虚拟摇杆控制</h3>
+          <div id="joystick-container"></div>
+          <div id="joystick-info" class="status-card subtle">
+            线速度: 0.00 m/s<br>
+            角速度: 0.00 rad/s
+          </div>
+          <p class="hint" style="font-size: 0.85em; margin-top: 0.5em;">拖动摇杆控制机器人移动（上下：前进/后退，左右：转向）</p>
+        </section>
+
+        <section>
+          <h3>巡逻轨迹</h3>
+          <label>
+            轨迹名称
+            <input id="input-route-name" type="text" placeholder="巡逻路线A" />
+          </label>
+          <p id="local-waypoints-indicator" class="status-card subtle">当前未保存航点：0</p>
+          <div class="button-row">
+            <button id="btn-record-waypoint">录制当前位置</button>
+            <button id="btn-start-trajectory">开始录制轨迹</button>
+          </div>
+          <div class="button-row">
+            <button id="btn-stop-trajectory">停止录制轨迹</button>
+            <button id="btn-clear-waypoints">清空航点</button>
+          </div>
+          <div class="button-row">
+            <button id="btn-save-route">保存航点</button>
+          </div>
+          <p id="route-execution-indicator" class="status-card subtle hidden">当前没有巡逻任务</p>
+          <button id="btn-stop-execution" class="danger hidden" style="width: 100%; margin-top: 0.5em;">⏹️ 停止执行</button>
+          <ul id="route-list"></ul>
+        </section>
+        
+        <section>
+          <h3>🔬 重定位可视化</h3>
+          <div class="button-row">
+            <button id="btn-show-3d-viewer">显示3D点云</button>
+            <button id="btn-refresh-clouds">刷新点云</button>
+          </div>
+          <div class="button-row" style="margin-top: 0.5em;">
+            <button id="btn-toggle-pointcloud-autorefresh" style="background-color: #95a5a6; width: 100%;">✗ 自动刷新点云</button>
+          </div>
+          <div id="pointcloud-status" class="status-card">点云状态：未加载</div>
+          <p class="hint" style="font-size: 0.85em; margin-top: 0.5em; line-height: 1.4;">
+            <strong>"显示3D点云"</strong>：查看当前点云与PCD地图的匹配关系<br>
+            重定位后可查看TEASER++、GICP粗匹配、GICP精匹配的结果
+          </p>
+        </section>
+      </aside>
+    </main>
+    
+    <!-- 3D点云查看器模态窗口 -->
+    <div id="pointcloud-modal" class="modal" style="display: none;">
+      <div class="modal-content" style="width: 90%; height: 90%; max-width: 1400px; max-height: 900px;">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1em; background: #2c3e50; color: white;">
+          <h2 style="margin: 0;">🔬 重定位3D点云可视化</h2>
+          <button id="btn-close-modal" style="background: #e74c3c; color: white; border: none; padding: 0.5em 1em; border-radius: 4px; cursor: pointer;">关闭</button>
+        </div>
+        <div class="modal-body" style="padding: 1em; height: calc(100% - 120px);">
+          <div style="display: flex; gap: 1em; height: 100%;">
+            <!-- 3D渲染区域 -->
+            <div style="flex: 1; background: #1a1a1a; border-radius: 4px; position: relative;">
+              <div id="three-container" style="width: 100%; height: 100%;"></div>
+              <div id="cloud-info" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                <div>等待加载点云数据...</div>
+              </div>
+            </div>
+            <!-- 控制面板 -->
+            <div style="width: 280px; background: #34495e; padding: 1em; border-radius: 4px; color: white; overflow-y: auto;">
+              <h3 style="margin-top: 0;">显示控制</h3>
+              <div style="margin-bottom: 0.5em; padding: 0.8em; background: rgba(0,0,0,0.3); border-radius: 4px; font-size: 0.85em; line-height: 1.5;">
+                <div style="margin-bottom: 0.3em;">📍 <strong>点云说明：</strong></div>
+                <div style="padding-left: 1em; color: #bdc3c7;">
+                  <div>🟠 橙色 = 当前传感器点云</div>
+                  <div>🔵 蓝色 = PCD地图点云</div>
+                  <div>🟢 绿色 = 精匹配后当前点云</div>
+                  <div>🟣 紫色 = 精匹配后地图点云</div>
+                </div>
+              </div>
+              <div style="margin-bottom: 1em;">
+                <label style="display: flex; align-items: center; margin-bottom: 0.5em;">
+                  <input type="checkbox" id="show-teaser" checked style="margin-right: 0.5em;">
+                  <span style="color: #e74c3c; font-weight: bold;">● TEASER++全局配准</span>
+                </label>
+                <label style="display: flex; align-items: center; margin-bottom: 0.5em;">
+                  <input type="checkbox" id="show-rough" checked style="margin-right: 0.5em;">
+                  <span style="font-weight: bold;">🟠🔵 GICP粗匹配 (当前+地图)</span>
+                </label>
+                <label style="display: flex; align-items: center; margin-bottom: 0.5em;">
+                  <input type="checkbox" id="show-refine" checked style="margin-right: 0.5em;">
+                  <span style="font-weight: bold;">🟢🟣 GICP精匹配 (当前+地图)</span>
+                </label>
+              </div>
+              <hr style="border: 1px solid #7f8c8d; margin: 1em 0;">
+              <h3>点云统计</h3>
+              <div id="cloud-stats" style="font-family: monospace; font-size: 0.9em; line-height: 1.6;">
+                <div>TEASER++: <span id="stat-teaser">0</span> 点</div>
+                <div>GICP粗: <span id="stat-rough">0</span> 点</div>
+                <div>GICP精: <span id="stat-refine">0</span> 点</div>
+              </div>
+              <hr style="border: 1px solid #7f8c8d; margin: 1em 0;">
+              <h3>刷新控制</h3>
+              <div style="padding: 0.5em; background: rgba(0,0,0,0.2); border-radius: 4px; margin-bottom: 0.5em;">
+                <div style="font-size: 0.85em; color: #bdc3c7; margin-bottom: 0.3em;">自动刷新状态</div>
+                <div id="auto-refresh-status" style="font-weight: bold; color: #95a5a6;">已关闭</div>
+              </div>
+              <div style="font-size: 0.85em; color: #f39c12; line-height: 1.4; margin-bottom: 0.5em;">
+                💡 提示：在主界面点击"自动刷新点云"按钮开启自动刷新（每3秒更新）
+              </div>
+              <hr style="border: 1px solid #7f8c8d; margin: 1em 0;">
+              <h3>视角控制</h3>
+              <button id="btn-reset-camera" style="width: 100%; padding: 0.5em; margin-bottom: 0.5em; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">重置视角</button>
+              <div style="font-size: 0.85em; color: #bdc3c7; line-height: 1.4; margin-top: 1em;">
+                <p style="margin: 0.5em 0;"><strong>操作说明：</strong></p>
+                <p style="margin: 0.3em 0;">• 左键拖动：旋转视角</p>
+                <p style="margin: 0.3em 0;">• 滚轮：缩放</p>
+                <p style="margin: 0.3em 0;">• 右键拖动：平移视角</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <script src="/static/js/app.js" type="module"></script>
+    <script src="/static/js/pointcloud-viewer.js" type="module"></script>
+  </body>
+</html>
+

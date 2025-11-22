@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Relocalization Tool</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; color: white; font-family: sans-serif; }
+        #container { width: 100vw; height: 100vh; }
+        #ui-panel {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(0, 0, 0, 0.8); padding: 20px;
+            border-radius: 8px; width: 300px;
+            pointer-events: auto;
+            z-index: 100;
+        }
+        .row { display: flex; justify-content: space-between; margin-bottom: 10px; align-items: center; }
+        button {
+            background: #3498db; color: white; border: none; padding: 8px 15px;
+            border-radius: 4px; cursor: pointer; font-weight: bold;
+        }
+        button:hover { background: #2980b9; }
+        button.confirm { background: #2ecc71; width: 100%; margin-top: 20px; padding: 12px; font-size: 16px; }
+        button.confirm:hover { background: #27ae60; }
+        input[type="number"] { width: 70px; background: #333; color: white; border: 1px solid #555; padding: 5px; }
+        .legend { font-size: 12px; color: #aaa; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px; }
+        .key-hint { display: inline-block; background: #444; padding: 2px 6px; border-radius: 3px; margin: 0 2px; font-family: monospace; color: #fff; }
+        #status { position: absolute; top: 20px; left: 20px; color: #f1c40f; font-weight: bold; font-size: 18px; z-index: 100; text-shadow: 1px 1px 2px black; }
+    </style>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div id="status">Connecting...</div>
+    <div id="container"></div>
+    
+    <div id="ui-panel">
+        <h3>Manual Initial Pose</h3>
+        
+        <div class="row">
+            <span>X (m)</span> <input type="number" id="val-x" step="0.1">
+        </div>
+        <div class="row">
+            <span>Y (m)</span> <input type="number" id="val-y" step="0.1">
+        </div>
+        <div class="row">
+            <span>Z (m)</span> <input type="number" id="val-z" step="0.1">
+        </div>
+        <div class="row">
+            <span>Roll (rad)</span> <input type="number" id="val-roll" step="0.05">
+        </div>
+        <div class="row">
+            <span>Pitch (rad)</span> <input type="number" id="val-pitch" step="0.05">
+        </div>
+        <div class="row">
+            <span>Yaw (rad)</span> <input type="number" id="val-yaw" step="0.05">
+        </div>
+        
+        <hr style="border-color: #444;">
+        
+        <div class="row">
+            <span>Step Size:</span>
+            <select id="step-size" style="background: #333; color: white; padding: 5px;">
+                <option value="0.05">Fine (0.05)</option>
+                <option value="0.5" selected>Medium (0.5)</option>
+                <option value="2.0">Coarse (2.0)</option>
+                <option value="10.0">Huge (10.0)</option>
+            </select>
+        </div>
+        
+        <div class="legend">
+            <p><strong>Controls:</strong></p>
+            <p><span class="key-hint">W</span> / <span class="key-hint">S</span> : Forward/Back (X)</p>
+            <p><span class="key-hint">A</span> / <span class="key-hint">D</span> : Left/Right (Y)</p>
+            <p><span class="key-hint">Q</span> / <span class="key-hint">E</span> : Rotate Yaw</p>
+            <p><span class="key-hint">R</span> / <span class="key-hint">F</span> : Rotate Roll (X轴)</p>
+            <p><span class="key-hint">T</span> / <span class="key-hint">G</span> : Rotate Pitch (Y轴)</p>
+            <p><span class="key-hint">Shift</span> + <span class="key-hint">W/S</span> : Up/Down (Z)</p>
+            <p>🔴 Red: Live Scan (Source)</p>
+            <p>⚪ Grey: Map (Target)</p>
+        </div>
+
+        <button class="confirm" onclick="confirmPose()">✅ Set Initial Pose</button>
+        <button onclick="resetView()" style="margin-top: 10px; width: 100%; background: #7f8c8d;">Reset Camera View</button>
+    </div>
+
+    <script>
+        // Scene Setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('container').appendChild(renderer.domElement);
+        
+        // Controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        camera.position.set(0, 0, 50); // Top down view initially
+        controls.update();
+        
+        // Helpers
+        const axesHelper = new THREE.AxesHelper( 5 );
+        scene.add( axesHelper );
+        
+        const gridHelper = new THREE.GridHelper( 100, 100, 0x444444, 0x222222 );
+        scene.add( gridHelper );
+        
+        // Point Clouds
+        let mapPoints = null;
+        let scanPoints = null;
+        
+        // WebSocket
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/manual_reloc`);
+        ws.binaryType = "arraybuffer";
+        
+        const statusEl = document.getElementById('status');
+        
+        ws.onopen = () => {
+            statusEl.textContent = "Connected";
+            statusEl.style.color = "#2ecc71";
+        };
+        
+        ws.onclose = () => {
+            statusEl.textContent = "Disconnected - Check Server";
+            statusEl.style.color = "#e74c3c";
+        };
+        
+        ws.onerror = (err) => {
+            console.error("WebSocket Error:", err);
+        };
+        
+        ws.onmessage = (event) => {
+            if (typeof event.data === "string") {
+                // JSON Message
+                const msg = JSON.parse(event.data);
+                console.log("Received JSON:", msg);
+                if (msg.type === "pose" || msg.type === "update") {
+                    // Handle both {type: "pose", data: {...}} and {type: "update", pose: {...}}
+                    const poseData = msg.pose || msg.data;
+                    if (poseData) {
+                        updateUI(poseData);
+                    }
+                    if (msg.scan_count) {
+                        console.log(`Scan count: ${msg.scan_count}`);
+                    }
+                }
+            } else {
+                // Binary Message
+                const buffer = event.data;
+                const headerBytes = new Uint8Array(buffer.slice(0, 4));
+                // Extract header string (remove null bytes and trim)
+                const headerStr = String.fromCharCode(...headerBytes.filter(b => b !== 0)).trim();
+                
+                console.log(`Received binary message, header: "${headerStr}", size: ${buffer.byteLength} bytes`);
+                
+                // Get data after header, ensure it's aligned to 4 bytes (Float32 requirement)
+                const dataStart = 4;
+                const dataLength = buffer.byteLength - dataStart;
+                // Round down to nearest multiple of 4
+                const alignedLength = Math.floor(dataLength / 4) * 4;
+                
+                if (alignedLength < 12) { // Need at least 3 floats (x, y, z) = 12 bytes
+                    console.warn(`Data too small: ${alignedLength} bytes`);
+                    return;
+                }
+                
+                const float32View = new Float32Array(buffer.slice(dataStart, dataStart + alignedLength));
+                
+                if (headerStr.startsWith("MAP")) {
+                    console.log(`Map data: ${float32View.length} floats = ${float32View.length/3} points`);
+                    updateMapCloud(float32View);
+                    statusEl.textContent = `Map Loaded: ${Math.floor(float32View.length/3)} points`;
+                } else if (headerStr.startsWith("SCAN")) {
+                    console.log(`Scan data: ${float32View.length} floats = ${float32View.length/3} points`);
+                    updateScanCloud(float32View);
+                } else {
+                    console.warn(`Unknown binary header: "${headerStr}" (bytes: ${Array.from(headerBytes).join(',')})`);
+                }
+            }
+        };
+        
+        function updateMapCloud(data) {
+            if (mapPoints) scene.remove(mapPoints);
+            
+            const geometry = new THREE.BufferGeometry();
+            // Three.js expects Float32BufferAttribute
+            geometry.setAttribute('position', new THREE.BufferAttribute(data, 3));
+            
+            // Compute bounding box to center camera
+            geometry.computeBoundingBox();
+            const box = geometry.boundingBox;
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // Adjust camera to view entire map
+            camera.position.set(center.x, center.y + maxDim * 0.5, center.z + maxDim * 0.5);
+            camera.lookAt(center);
+            controls.target.copy(center);
+            controls.update();
+            
+            const material = new THREE.PointsMaterial({ 
+                color: 0x888888, 
+                size: Math.max(0.1, maxDim / 500), // Adaptive point size
+                sizeAttenuation: true
+            }); 
+            mapPoints = new THREE.Points(geometry, material);
+            scene.add(mapPoints);
+            
+            console.log(`Map loaded: ${data.length/3} points, center:`, center, "size:", size);
+            statusEl.textContent = `Map Loaded: ${Math.floor(data.length/3)} points`;
+        }
+        
+        function updateScanCloud(data) {
+            if (scanPoints) scene.remove(scanPoints);
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(data, 3));
+            
+            // Use adaptive size based on map if available
+            let pointSize = 0.3;
+            if (mapPoints && mapPoints.geometry.boundingBox) {
+                const mapSize = mapPoints.geometry.boundingBox.getSize(new THREE.Vector3());
+                const maxDim = Math.max(mapSize.x, mapSize.y, mapSize.z);
+                pointSize = Math.max(0.15, maxDim / 500);
+            }
+            
+            const material = new THREE.PointsMaterial({ 
+                color: 0xff3333, 
+                size: pointSize,
+                sizeAttenuation: true 
+            });
+            scanPoints = new THREE.Points(geometry, material);
+            scene.add(scanPoints);
+            
+            console.log(`Scan updated: ${data.length/3} points`);
+        }
+        
+        function updateUI(pose) {
+            // pose is already the pose object (not wrapped)
+            if (!pose) return;
+            
+            // Only update inputs if they are not focused to avoid fighting user
+            if (document.activeElement.tagName !== 'INPUT') {
+                if (pose.x !== undefined) document.getElementById('val-x').value = pose.x.toFixed(2);
+                if (pose.y !== undefined) document.getElementById('val-y').value = pose.y.toFixed(2);
+                if (pose.z !== undefined) document.getElementById('val-z').value = pose.z.toFixed(2);
+                if (pose.roll !== undefined) document.getElementById('val-roll').value = pose.roll.toFixed(2);
+                if (pose.pitch !== undefined) document.getElementById('val-pitch').value = pose.pitch.toFixed(2);
+                if (pose.yaw !== undefined) document.getElementById('val-yaw').value = pose.yaw.toFixed(2);
+            }
+        }
+        
+        function sendMove(axis, value) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "move", axis: axis, value: value }));
+            }
+        }
+        
+        function confirmPose() {
+            if (confirm("Are you sure you want to overwrite the system's initial pose?")) {
+                ws.send(JSON.stringify({ type: "confirm" }));
+                alert("Pose published to system!");
+            }
+        }
+        
+        function resetView() {
+            controls.reset();
+            camera.position.set(0, 0, 50);
+            controls.update();
+        }
+
+        // Keyboard Controls
+        document.addEventListener('keydown', (e) => {
+            // Ignore if typing in input
+            if (e.target.tagName === 'INPUT') return;
+            
+            const step = parseFloat(document.getElementById('step-size').value);
+            const rotStep = step * 0.2; // Radians usually smaller
+            
+            // Coordinate system note:
+            // In visualizer: Up is Z? 
+            // Usually Three.js Y is up. But our map data is usually Z up.
+            // If map data is Z up, then Three.js works fine if we treat Y as back/forward?
+            // ROS: X forward, Y left, Z up.
+            // Three.js Default: Y up, Z toward viewer, X right.
+            // Our visualization is passing raw XYZ from ROS.
+            // So displayed points: X is Right in Three.js? 
+            // Actually: 
+            // ROS (x,y,z) -> Three (x,y,z) means:
+            // X (ROS Forward) -> X (Three Right)
+            // Y (ROS Left) -> Y (Three Up)
+            // Z (ROS Up) -> Z (Three Forward/Back)
+            // This is rotated.
+            
+            // However, usually we rotate points in JS to match Z-up visualization.
+            // Let's assume user adjusts based on visual feedback.
+            // ROS X axis (Forward) usually maps to 'W' key.
+            
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                    if (e.shiftKey) sendMove('z', step);
+                    else sendMove('x', step);
+                    break;
+                case 's':
+                    if (e.shiftKey) sendMove('z', -step);
+                    else sendMove('x', -step);
+                    break;
+                case 'a':
+                    sendMove('y', step);
+                    break;
+                case 'd':
+                    sendMove('y', -step);
+                    break;
+                case 'q':
+                    sendMove('yaw', rotStep);
+                    break;
+                case 'e':
+                    sendMove('yaw', -rotStep);
+                    break;
+                case 'r':
+                    sendMove('roll', rotStep);
+                    break;
+                case 'f':
+                    sendMove('roll', -rotStep);
+                    break;
+                case 't':
+                    sendMove('pitch', rotStep);
+                    break;
+                case 'g':
+                    sendMove('pitch', -rotStep);
+                    break;
+            }
+        });
+        
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+        
+        // Resize Handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Input Change Handler (Manual Entry)
+        ['val-x', 'val-y', 'val-z', 'val-roll', 'val-pitch', 'val-yaw'].forEach(id => {
+            document.getElementById(id).addEventListener('change', (e) => {
+                const pose = {
+                    x: document.getElementById('val-x').value,
+                    y: document.getElementById('val-y').value,
+                    z: document.getElementById('val-z').value,
+                    roll: document.getElementById('val-roll').value,
+                    pitch: document.getElementById('val-pitch').value,
+                    yaw: document.getElementById('val-yaw').value,
+                };
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "set_pose", data: pose }));
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
+

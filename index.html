@@ -276,6 +276,22 @@
       </div>
     </div>
 
+    <!-- 定位日志面板 -->
+    <div class="panel full-width">
+      <h3>📍 定位日志 (Localizer)</h3>
+      <div class="history-log" id="localizerLog" style="max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.9em;">
+        <div class="log-entry">
+          <span class="log-timestamp">[系统]</span>
+          <span>等待定位数据...</span>
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button onclick="clearLocalizerLog()">🗑️ 清除日志</button>
+        <button onclick="refreshLocalizerLog()">🔄 刷新</button>
+        <button id="autoScrollBtn" onclick="toggleAutoScroll()" style="background-color: #27ae60;">✓ 自动滚动</button>
+      </div>
+    </div>
+
     <!-- 状态历史面板 -->
     <div class="panel full-width">
       <h3>📊 状态历史记录</h3>
@@ -298,6 +314,7 @@
     let robotPose = {x: 0, y: 0, theta: 0};
     let navigationStatus = 'IDLE';
     let historyEntries = [];
+    let autoScrollEnabled = false;  // 默认关闭自动滚动
 
     // 状态映射
     const statusConfig = {
@@ -833,15 +850,79 @@
         });
     }
 
+    // 定位日志相关函数
+    function refreshLocalizerLog() {
+      fetch("http://172.66.2.110:8000/api/localizer/logs")
+        .then(res => res.json())
+        .then(data => {
+          const logDiv = document.getElementById('localizerLog');
+          if (data.logs && data.logs.length > 0) {
+            logDiv.innerHTML = data.logs.map(log => {
+              let className = 'log-entry';
+              let style = '';
+              if (log.includes('成功') || log.includes('ICP匹配成功') || log.includes('定位成功') || log.includes('Match Found')) {
+                className = 'log-entry success';
+              } else if (log.includes('失败') || log.includes('过高') || log.includes('定位失败')) {
+                className = 'log-entry error';
+              } else if (log.includes('SC') || log.includes('Scan Context')) {
+                style = 'color: #1abc9c;';  // teal - SC相关
+              } else if (log.includes('TEASER') || log.includes('对应关系')) {
+                style = 'color: #e67e22;';  // orange - TEASER++
+              } else if (log.includes('粗匹配')) {
+                style = 'color: #3498db;';  // blue - 粗匹配
+              } else if (log.includes('精匹配')) {
+                style = 'color: #9b59b6;';  // purple - 精匹配
+              } else if (log.includes('全局配准') || log.includes('图匹配')) {
+                style = 'color: #f39c12;';  // orange - 全局配准
+              }
+              return `<div class="${className}" style="${style}"><span>${log}</span></div>`;
+            }).join('');
+            // 只有在启用自动滚动时才滚动到底部
+            if (autoScrollEnabled) {
+              logDiv.scrollTop = logDiv.scrollHeight;
+            }
+          } else {
+            logDiv.innerHTML = '<div class="log-entry"><span class="log-timestamp">[系统]</span><span>暂无日志数据</span></div>';
+          }
+        })
+        .catch(error => {
+          console.error("获取localizer日志失败:", error);
+        });
+    }
+
+    // 切换自动滚动
+    function toggleAutoScroll() {
+      autoScrollEnabled = !autoScrollEnabled;
+      const btn = document.getElementById('autoScrollBtn');
+      if (autoScrollEnabled) {
+        btn.style.backgroundColor = '#27ae60';
+        btn.innerHTML = '✓ 自动滚动';
+        // 立即滚动到底部
+        const logDiv = document.getElementById('localizerLog');
+        logDiv.scrollTop = logDiv.scrollHeight;
+      } else {
+        btn.style.backgroundColor = '#95a5a6';
+        btn.innerHTML = '✗ 自动滚动';
+      }
+    }
+
+    function clearLocalizerLog() {
+      document.getElementById('localizerLog').innerHTML = '<div class="log-entry"><span class="log-timestamp">[系统]</span><span>日志已清除</span></div>';
+    }
+
     // 页面加载时自动获取地图和状态
     window.onload = function() {
       console.log("页面加载完成，开始初始化...");
       getMap();
       getStatus();
       getNavigationStatus();
+      refreshLocalizerLog();
       
       // 自动启动监控
       setTimeout(startAutoUpdate, 1000);
+      
+      // 每2秒自动刷新localizer日志
+      setInterval(refreshLocalizerLog, 2000);
     };
   </script>
 </body>

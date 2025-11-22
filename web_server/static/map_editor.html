@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图编辑器 - Tron ROS2</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <style>
+        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: #1e272e; color: #ecf0f1; }
+        header { padding: 10px 20px; background: #2c3e50; border-bottom: 1px solid #34495e; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { margin: 0; font-size: 1.2rem; color: #3498db; }
+        
+        .editor-layout { display: flex; flex: 1; overflow: hidden; }
+        
+        .sidebar { width: 280px; background: #2c3e50; padding: 15px; border-right: 1px solid #34495e; display: flex; flex-direction: column; gap: 15px; box-shadow: 2px 0 5px rgba(0,0,0,0.2); z-index: 10; }
+        
+        .main-canvas-area { flex: 1; position: relative; overflow: hidden; background: #1a1a1a; cursor: crosshair; }
+        .canvas-container { transform-origin: 0 0; position: absolute; top: 0; left: 0; box-shadow: 0 0 20px rgba(0,0,0,0.3); }
+        canvas { display: block; image-rendering: pixelated; background-image: linear-gradient(45deg, #222 25%, transparent 25%), linear-gradient(-45deg, #222 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #222 75%), linear-gradient(-45deg, transparent 75%, #222 75%); background-size: 20px 20px; background-position: 0 0, 0 10px, 10px -10px, -10px 0px; }
+
+        .tool-btn { display: flex; align-items: center; width: 100%; padding: 10px; margin-bottom: 5px; background: #34495e; border: 1px solid #465c71; color: #ecf0f1; border-radius: 4px; cursor: pointer; transition: all 0.2s; text-align: left; }
+        .tool-btn:hover { background: #3d566e; }
+        .tool-btn.active { background: #3498db; border-color: #2980b9; color: white; }
+        .color-preview { width: 16px; height: 16px; display: inline-block; border: 1px solid #7f8c8d; vertical-align: middle; margin-right: 10px; border-radius: 2px; }
+        .shortcut-hint { font-size: 10px; color: rgba(255,255,255,0.5); margin-left: auto; }
+        
+        input[type="range"] { width: 100%; margin: 10px 0; }
+        
+        .status-bar { padding: 5px 15px; background: #2c3e50; border-top: 1px solid #34495e; font-size: 12px; color: #bdc3c7; display: flex; justify-content: space-between; }
+        
+        .btn-group { display: flex; gap: 5px; }
+        .btn-group button { flex: 1; padding: 5px; font-size: 12px; }
+
+        .back-link { color: #bdc3c7; text-decoration: none; font-size: 0.9rem; display: flex; align-items: center; }
+        .back-link:hover { color: white; }
+        
+        select { width: 100%; padding: 8px; background: #34495e; color: white; border: 1px solid #465c71; border-radius: 4px; }
+        
+        /* 历史记录按钮样式 */
+        .history-btn {
+            padding: 5px 10px;
+            background: #465c71;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            flex: 1;
+        }
+        .history-btn:disabled {
+            background: #2c3e50;
+            color: #7f8c8d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <a href="/" class="back-link">⬅ 返回控制台</a>
+            <h1>🗺️ 地图编辑器</h1>
+        </div>
+        <div id="header-status" style="color: #f1c40f; font-size: 14px;"></div>
+    </header>
+
+    <div class="editor-layout">
+        <div class="sidebar">
+            <div class="control-group">
+                <label style="font-size: 12px; color: #95a5a6; margin-bottom: 5px; display: block;">当前编辑地图</label>
+                <select id="map-selector" onchange="onMapSelectChange(this.value)">
+                    <option value="">-- 加载中 --</option>
+                </select>
+            </div>
+
+            <hr style="border-color: #34495e; margin: 10px 0;">
+            
+            <div class="control-group">
+                <label style="font-size: 12px; color: #95a5a6; margin-bottom: 5px; display: block;">历史记录</label>
+                <div style="display: flex; gap: 5px;">
+                    <button id="btn-undo" class="history-btn" onclick="undo()" disabled>↶ 撤销 (Ctrl+Z)</button>
+                    <button id="btn-redo" class="history-btn" onclick="redo()" disabled>↷ 重做 (Ctrl+Y)</button>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: 10px;">
+                <label style="font-size: 12px; color: #95a5a6; margin-bottom: 5px; display: block;">选择工具</label>
+                <button class="tool-btn active" onclick="setTool('erase')">
+                    <span class="color-preview" style="background:white;"></span>
+                    <span>橡皮擦 (自由空间)</span>
+                    <span class="shortcut-hint">[E]</span>
+                </button>
+                <button class="tool-btn" onclick="setTool('obstacle')">
+                    <span class="color-preview" style="background:black;"></span>
+                    <span>添加障碍物</span>
+                    <span class="shortcut-hint">[B]</span>
+                </button>
+                <button class="tool-btn" onclick="setTool('unknown')">
+                    <span class="color-preview" style="background:#cdcdcd;"></span>
+                    <span>标记为未知</span>
+                    <span class="shortcut-hint">[U]</span>
+                </button>
+            </div>
+
+            <div class="control-group">
+                <label style="font-size: 12px; color: #95a5a6; display: block;">
+                    画笔大小: <span id="brush-size-val" style="color: white;">5</span> px (方形)
+                </label>
+                <input type="range" min="1" max="50" value="5" id="brush-size" oninput="updateBrushSize(this.value)">
+            </div>
+
+            <div class="control-group">
+                <label style="font-size: 12px; color: #95a5a6; margin-bottom: 5px; display: block;">视图控制</label>
+                <div class="btn-group">
+                    <button onclick="zoomIn()">放大 (+)</button>
+                    <button onclick="zoomOut()">缩小 (-)</button>
+                    <button onclick="resetView()">重置</button>
+                </div>
+                <p style="font-size: 11px; color: #7f8c8d; margin-top: 5px;">
+                    • 滚轮缩放<br>
+                    • Alt+左键 或 中键平移<br>
+                    • '[' / ']' 调整画笔
+                </p>
+            </div>
+
+            <div style="margin-top: auto;">
+                <button id="save-btn" class="btn-primary" style="width: 100%; padding: 12px; font-size: 14px; font-weight: bold;" onclick="saveMap()">
+                    💾 保存修改
+                </button>
+            </div>
+        </div>
+
+        <div class="main-canvas-area" id="main-area">
+            <div class="canvas-container" id="canvas-container">
+                <canvas id="editor-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span id="status-text">准备就绪</span>
+        <span id="coords-text">X: 0, Y: 0</span>
+    </div>
+
+    <script>
+        let currentMapName = null;
+        let canvas = document.getElementById('editor-canvas');
+        let ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // Disable image smoothing for pixel-perfect rendering
+        ctx.imageSmoothingEnabled = false;
+        
+        let container = document.getElementById('canvas-container');
+        
+        // 状态变量
+        let isDrawing = false;
+        let isPanning = false;
+        let scale = 1;
+        let offsetX = 50;
+        let offsetY = 50;
+        let startX, startY;
+        let brushSize = 5;
+        let currentTool = 'erase'; 
+        
+        // Undo/Redo History
+        const history = [];
+        const redoStack = [];
+        const MAX_HISTORY = 30; // Max history steps
+        
+        const COLORS = {
+            erase: '#FEFEFE',   // 254
+            obstacle: '#000000', // 0
+            unknown: '#CDCDCD'   // 205
+        };
+
+        window.onload = async function() {
+            setupEvents();
+            await loadMapList();
+            
+            // Check URL param
+            const urlParams = new URLSearchParams(window.location.search);
+            const mapName = urlParams.get('map');
+            
+            if (mapName) {
+                // Select in dropdown and load
+                const selector = document.getElementById('map-selector');
+                selector.value = mapName;
+                loadMap(mapName);
+            }
+        };
+        
+        async function loadMapList() {
+            try {
+                const response = await fetch('/api/maps/list');
+                const data = await response.json();
+                const selector = document.getElementById('map-selector');
+                selector.innerHTML = '<option value="">-- 请选择地图 --</option>';
+                
+                if (data.maps) {
+                    data.maps.forEach(map => {
+                        const option = document.createElement('option');
+                        option.value = map.name;
+                        option.textContent = `${map.name} (${(map.size/1024).toFixed(1)} KB)`;
+                        selector.appendChild(option);
+                    });
+                }
+            } catch (e) {
+                console.error("加载地图列表失败", e);
+                alert("加载地图列表失败");
+            }
+        }
+        
+        function onMapSelectChange(val) {
+            if (val) {
+                loadMap(val);
+            }
+        }
+
+        function loadMap(mapName) {
+            currentMapName = mapName;
+            document.getElementById('header-status').innerText = mapName;
+            document.getElementById('status-text').innerText = `正在加载地图: ${mapName}...`;
+            
+            // Disable save button while loading
+            document.getElementById('save-btn').disabled = true;
+            
+            let img = new Image();
+            img.src = `/api/maps/${mapName}/image?t=${new Date().getTime()}`;
+            
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                
+                // Clear history on new map load
+                history.length = 0;
+                redoStack.length = 0;
+                updateHistoryButtons();
+                
+                document.getElementById('status-text').innerText = `已加载: ${mapName} (${img.width}x${img.height})`;
+                document.getElementById('save-btn').disabled = false;
+                resetView();
+            };
+            
+            img.onerror = function() {
+                alert("加载地图失败！");
+                document.getElementById('status-text').innerText = "加载失败";
+                document.getElementById('save-btn').disabled = false;
+            };
+        }
+        
+        // --- History Management ---
+        
+        function saveState() {
+            // Limit history size
+            if (history.length >= MAX_HISTORY) {
+                history.shift();
+            }
+            // Save current canvas state
+            history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            // Clear redo stack on new action
+            redoStack.length = 0;
+            updateHistoryButtons();
+        }
+        
+        function undo() {
+            if (history.length === 0) return;
+            
+            // Save current state to redo stack
+            redoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            
+            // Restore previous state
+            const previousState = history.pop();
+            ctx.putImageData(previousState, 0, 0);
+            
+            updateHistoryButtons();
+        }
+        
+        function redo() {
+            if (redoStack.length === 0) return;
+            
+            // Save current state to history
+            history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            
+            // Restore next state
+            const nextState = redoStack.pop();
+            ctx.putImageData(nextState, 0, 0);
+            
+            updateHistoryButtons();
+        }
+        
+        function updateHistoryButtons() {
+            document.getElementById('btn-undo').disabled = history.length === 0;
+            document.getElementById('btn-redo').disabled = redoStack.length === 0;
+        }
+
+        function setupEvents() {
+            let mainArea = document.getElementById('main-area');
+
+            mainArea.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                let delta = e.deltaY > 0 ? 0.9 : 1.1;
+                scale *= delta;
+                scale = Math.max(0.1, Math.min(10, scale));
+                updateTransform();
+            }, { passive: false });
+
+            mainArea.addEventListener('mousedown', function(e) {
+                if (e.button === 1 || (e.button === 0 && e.altKey)) {
+                    isPanning = true;
+                    startX = e.clientX - offsetX;
+                    startY = e.clientY - offsetY;
+                    mainArea.style.cursor = 'grabbing';
+                } else if (e.button === 0) {
+                    isDrawing = true;
+                    saveState(); // Save state before drawing starts
+                    draw(e);
+                }
+            });
+
+            mainArea.addEventListener('mousemove', function(e) {
+                updateCoords(e);
+                if (isPanning) {
+                    offsetX = e.clientX - startX;
+                    offsetY = e.clientY - startY;
+                    updateTransform();
+                } else if (isDrawing) {
+                    draw(e);
+                }
+            });
+
+            window.addEventListener('mouseup', function() {
+                isDrawing = false;
+                isPanning = false;
+                mainArea.style.cursor = 'crosshair';
+            });
+            
+            window.addEventListener('keydown', function(e) {
+                // Tools
+                if (e.key === 'e' || e.key === 'E') setTool('erase');
+                if (e.key === 'b' || e.key === 'B') setTool('obstacle');
+                if (e.key === 'u' || e.key === 'U') setTool('unknown');
+                if (e.key === '[') updateBrushSize(Math.max(1, brushSize - 1));
+                if (e.key === ']') updateBrushSize(Math.min(50, brushSize + 1));
+                
+                // Undo/Redo
+                if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                        redo();
+                    } else {
+                        undo();
+                    }
+                }
+                if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+                    e.preventDefault();
+                    redo();
+                }
+            });
+        }
+
+        function updateTransform() {
+            container.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+        }
+
+        function getCanvasCoords(e) {
+            let rect = canvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left) / scale,
+                y: (e.clientY - rect.top) / scale
+            };
+        }
+
+        function draw(e) {
+            let coords = getCanvasCoords(e);
+            
+            // Use pixel-perfect drawing (square brush for maps)
+            ctx.fillStyle = COLORS[currentTool];
+            
+            const x = Math.floor(coords.x);
+            const y = Math.floor(coords.y);
+            
+            if (brushSize === 1) {
+                // Single pixel
+                ctx.fillRect(x, y, 1, 1);
+            } else {
+                // Square brush centered at cursor
+                const offset = Math.floor(brushSize / 2);
+                ctx.fillRect(x - offset, y - offset, brushSize, brushSize);
+            }
+        }
+
+        function updateCoords(e) {
+            let coords = getCanvasCoords(e);
+            document.getElementById('coords-text').innerText = 
+                `X: ${Math.floor(coords.x)}, Y: ${Math.floor(coords.y)} | Scale: ${scale.toFixed(2)}`;
+        }
+
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+            // 简单根据顺序或者ID来激活按钮，这里简化处理
+            const buttons = document.querySelectorAll('.tool-btn');
+            if(tool === 'erase') buttons[0].classList.add('active');
+            if(tool === 'obstacle') buttons[1].classList.add('active');
+            if(tool === 'unknown') buttons[2].classList.add('active');
+        }
+
+        function updateBrushSize(size) {
+            brushSize = parseInt(size);
+            document.getElementById('brush-size').value = brushSize;
+            document.getElementById('brush-size-val').innerText = brushSize;
+        }
+        
+        function resetView() {
+            let mainArea = document.getElementById('main-area');
+            scale = Math.min((mainArea.clientWidth - 40) / canvas.width, (mainArea.clientHeight - 40) / canvas.height);
+            if(scale <= 0 || scale > 1) scale = 0.8;
+            
+            offsetX = (mainArea.clientWidth - canvas.width * scale) / 2;
+            offsetY = (mainArea.clientHeight - canvas.height * scale) / 2;
+            updateTransform();
+        }
+        
+        function zoomIn() { scale *= 1.2; updateTransform(); }
+        function zoomOut() { scale /= 1.2; updateTransform(); }
+
+        function saveMap() {
+            if (!currentMapName) return;
+            
+            let btn = document.getElementById('save-btn');
+            btn.disabled = true;
+            btn.innerText = "正在保存...";
+            
+            let dataURL = canvas.toDataURL('image/png');
+            
+            fetch('/api/maps/save_edit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    map_name: currentMapName,
+                    image_data: dataURL
+                })
+            })
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return res.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    alert(`✅ 保存成功！\n已自动备份原文件。`);
+                } else {
+                    alert("❌ 保存失败: " + (data.detail || data.error || "未知错误"));
+                }
+            })
+            .catch(err => alert("❌ 请求错误: " + err))
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerText = "💾 保存修改";
+            });
+        }
+    </script>
+</body>
+</html>

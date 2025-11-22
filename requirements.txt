@@ -1,0 +1,18 @@
+# ROS2WebLink Python依赖
+# 使用国内镜像源安装: pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+# Web框架核心
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# 测试和开发工具
+pytest>=7.0.0
+httpx>=0.25.0
+
+# WebSocket支持 (已安装)
+# websocket-client
+
+# 注意：rclpy (ROS2 Python客户端) 由ROS2环境提供，无需单独安装
+
+

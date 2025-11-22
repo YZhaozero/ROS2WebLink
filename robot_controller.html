@@ -169,6 +169,123 @@
             box-shadow: 0 8px 25px rgba(220, 53, 69, 0.6);
         }
 
+        .mode-controls {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+
+        .mode-controls h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+
+        .mode-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .mode-btn {
+            background: linear-gradient(145deg, #6c757d, #5a6268);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 15px 20px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .mode-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .mode-btn:active {
+            transform: translateY(0);
+        }
+
+        .mode-btn.stand {
+            background: linear-gradient(145deg, #28a745, #218838);
+        }
+
+        .mode-btn.walk {
+            background: linear-gradient(145deg, #17a2b8, #138496);
+        }
+
+        .mode-btn.sit {
+            background: linear-gradient(145deg, #ffc107, #e0a800);
+        }
+
+        .mode-btn.stair-on {
+            background: linear-gradient(145deg, #fd7e14, #e8690c);
+        }
+
+        .mode-btn.stair-off {
+            background: linear-gradient(145deg, #6610f2, #560bad);
+        }
+
+        .mode-btn.recover {
+            background: linear-gradient(145deg, #e83e8c, #c82466);
+        }
+
+        .height-control {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+
+        .height-control h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+
+        .height-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .height-btn {
+            background: linear-gradient(145deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 15px 20px;
+            font-size: 1.1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .height-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .height-value {
+            text-align: center;
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #495057;
+            margin: 10px 0;
+        }
+
+        .height-slider {
+            width: 100%;
+            margin: 15px 0;
+        }
+
         .keyboard-hint {
             background: #e9ecef;
             padding: 15px;
@@ -180,6 +297,28 @@
 
         .keyboard-hint strong {
             color: #333;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
         }
 
         @media (max-width: 480px) {
@@ -225,6 +364,31 @@
             <input type="range" id="angular-slider" class="speed-slider" min="0" max="2" step="0.1" value="0.5">
         </div>
 
+        <div class="mode-controls">
+            <h3>🤖 机器人模式</h3>
+            <div class="mode-grid">
+                <button class="mode-btn stand" id="btn-mode-stand">🧍 站立</button>
+                <button class="mode-btn walk" id="btn-mode-walk">🚶 行走</button>
+                <button class="mode-btn sit" id="btn-mode-sit">🧎 蹲下</button>
+                <button class="mode-btn recover" id="btn-mode-recover">🔄 倒地爬起</button>
+                <button class="mode-btn stair-on" id="btn-stair-on">🪜 楼梯模式</button>
+                <button class="mode-btn stair-off" id="btn-stair-off">↩️ 退出楼梯</button>
+            </div>
+        </div>
+
+        <div class="height-control">
+            <h3>📏 高度调节</h3>
+            <div class="height-value">相对高度: <span id="height-value">50</span>%</div>
+            <input type="range" id="height-slider" class="height-slider" min="0" max="100" step="10" value="50" disabled>
+            <div class="height-buttons">
+                <button class="height-btn" id="btn-height-up">⬆️ 升高 (+5cm)</button>
+                <button class="height-btn" id="btn-height-down">⬇️ 降低 (-5cm)</button>
+            </div>
+            <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                每次点击升高或降低机身 5cm
+            </p>
+        </div>
+
         <button class="emergency-stop" id="btn-emergency">🚨 紧急停止</button>
 
         <div class="keyboard-hint">
@@ -240,10 +404,28 @@
                 this.isConnected = false;
                 this.linearSpeed = 0.5;
                 this.angularSpeed = 0.5;
+                this.bodyHeight = 50; // 机身高度百分比
+                
+                // 平滑控制相关
+                this.targetVelX = 0;
+                this.targetVelY = 0;
+                this.targetVelTheta = 0;
+                this.currentVelX = 0;
+                this.currentVelY = 0;
+                this.currentVelTheta = 0;
+                
+                // 平滑参数
+                this.accelerationRate = 0.15;  // 加速度系数（越小越平滑）
+                this.decelerationRate = 0.25;  // 减速度系数（略快于加速）
+                this.controlInterval = 50;     // 控制循环间隔(ms)
+                
+                // 当前按键状态
+                this.activeKeys = new Set();
                 
                 this.initializeControls();
                 this.checkConnection();
                 this.startConnectionMonitoring();
+                this.startControlLoop();
             }
 
             initializeControls() {
@@ -272,6 +454,38 @@
                     document.getElementById('angular-speed').textContent = this.angularSpeed.toFixed(1);
                 });
 
+                // 机器人模式按钮
+                document.getElementById('btn-mode-stand').addEventListener('click', () => this.setMode('stand'));
+                document.getElementById('btn-mode-walk').addEventListener('click', () => this.setMode('walk'));
+                document.getElementById('btn-mode-sit').addEventListener('click', () => this.setMode('sit'));
+                document.getElementById('btn-mode-recover').addEventListener('click', () => this.setMode('recover'));
+                document.getElementById('btn-stair-on').addEventListener('click', () => this.setStairMode(true));
+                document.getElementById('btn-stair-off').addEventListener('click', () => this.setStairMode(false));
+
+                // 高度调节（每次±5cm）
+                document.getElementById('height-slider').addEventListener('input', (e) => {
+                    this.bodyHeight = parseInt(e.target.value);
+                    document.getElementById('height-value').textContent = this.bodyHeight;
+                });
+
+                document.getElementById('btn-height-up').addEventListener('click', () => {
+                    // 升高机身 5cm
+                    this.setBodyHeight(1);
+                    // 更新显示值
+                    this.bodyHeight = Math.min(100, this.bodyHeight + 10);
+                    document.getElementById('height-value').textContent = this.bodyHeight;
+                    document.getElementById('height-slider').value = this.bodyHeight;
+                });
+
+                document.getElementById('btn-height-down').addEventListener('click', () => {
+                    // 降低机身 5cm
+                    this.setBodyHeight(-1);
+                    // 更新显示值
+                    this.bodyHeight = Math.max(0, this.bodyHeight - 10);
+                    document.getElementById('height-value').textContent = this.bodyHeight;
+                    document.getElementById('height-slider').value = this.bodyHeight;
+                });
+
                 // 键盘控制
                 document.addEventListener('keydown', (e) => this.handleKeyDown(e));
                 document.addEventListener('keyup', (e) => this.handleKeyUp(e));
@@ -279,7 +493,7 @@
 
             async sendCmdVel(vel_x, vel_y, vel_theta) {
                 try {
-                    const response = await fetch(`${this.serverUrl}/api/robot/control`, {
+                    const response = await fetch(`${this.serverUrl}/api/robot/cmd_vel`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -301,59 +515,245 @@
                 }
             }
 
+            // 平滑插值函数
+            smoothInterpolate(current, target, rate) {
+                const diff = target - current;
+                if (Math.abs(diff) < 0.001) {
+                    return target;
+                }
+                return current + diff * rate;
+            }
+
+            // 控制循环 - 持续平滑地更新速度
+            startControlLoop() {
+                setInterval(() => {
+                    // 根据目标速度平滑更新当前速度
+                    const accelRate = (Math.abs(this.targetVelX - this.currentVelX) < Math.abs(this.currentVelX) * 0.1)
+                        ? this.decelerationRate : this.accelerationRate;
+                    
+                    this.currentVelX = this.smoothInterpolate(this.currentVelX, this.targetVelX, accelRate);
+                    this.currentVelY = this.smoothInterpolate(this.currentVelY, this.targetVelY, accelRate);
+                    this.currentVelTheta = this.smoothInterpolate(this.currentVelTheta, this.targetVelTheta, accelRate);
+                    
+                    // 发送当前速度
+                    this.sendCmdVel(this.currentVelX, this.currentVelY, this.currentVelTheta);
+                }, this.controlInterval);
+            }
+
             moveForward() {
-                this.sendCmdVel(this.linearSpeed, 0, 0);
+                this.targetVelX = this.linearSpeed;
+                this.targetVelY = 0;
+                this.targetVelTheta = 0;
             }
 
             moveBackward() {
-                this.sendCmdVel(-this.linearSpeed, 0, 0);
+                this.targetVelX = -this.linearSpeed;
+                this.targetVelY = 0;
+                this.targetVelTheta = 0;
             }
 
             turnLeft() {
-                this.sendCmdVel(0, 0, this.angularSpeed);
+                this.targetVelX = 0;
+                this.targetVelY = 0;
+                this.targetVelTheta = this.angularSpeed;
             }
 
             turnRight() {
-                this.sendCmdVel(0, 0, -this.angularSpeed);
+                this.targetVelX = 0;
+                this.targetVelY = 0;
+                this.targetVelTheta = -this.angularSpeed;
             }
 
             stop() {
-                this.sendCmdVel(0, 0, 0);
+                this.targetVelX = 0;
+                this.targetVelY = 0;
+                this.targetVelTheta = 0;
             }
 
             emergencyStop() {
                 this.stop();
+                this.sendEmergencyStop();
                 alert('🚨 紧急停止已触发！');
             }
 
+            async setMode(mode) {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/mode/${mode}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log(`模式切换成功: ${mode}`, result);
+                        this.showNotification(`✅ 已切换到${this.getModeText(mode)}模式`);
+                    } else {
+                        console.error(`模式切换失败: ${mode}`);
+                        this.showNotification(`❌ ${this.getModeText(mode)}模式切换失败`, 'error');
+                    }
+                } catch (error) {
+                    console.error('模式切换错误:', error);
+                    this.updateConnectionStatus(false);
+                    this.showNotification('❌ 连接错误', 'error');
+                }
+            }
+
+            async setStairMode(enable) {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/mode/stair`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ enable: enable })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log(`楼梯模式${enable ? '启用' : '关闭'}成功`, result);
+                        this.showNotification(`✅ 楼梯模式已${enable ? '启用' : '关闭'}`);
+                    } else {
+                        console.error(`楼梯模式${enable ? '启用' : '关闭'}失败`);
+                        this.showNotification(`❌ 楼梯模式操作失败`, 'error');
+                    }
+                } catch (error) {
+                    console.error('楼梯模式切换错误:', error);
+                    this.updateConnectionStatus(false);
+                    this.showNotification('❌ 连接错误', 'error');
+                }
+            }
+
+            async setBodyHeight(direction) {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/body_height`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ direction: direction })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        const action = direction > 0 ? '升高' : '降低';
+                        console.log(`高度调节成功: ${action} 5cm`, result);
+                        this.showNotification(`✅ 机身${action} 5cm`);
+                    } else {
+                        console.error(`高度调节失败`);
+                        this.showNotification(`❌ 当前状态不允许调整身高`, 'error');
+                    }
+                } catch (error) {
+                    console.error('高度调节错误:', error);
+                    this.showNotification('❌ 连接错误', 'error');
+                }
+            }
+
+            async sendEmergencyStop() {
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/robot/emergency_stop`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (response.ok) {
+                        console.log('紧急停止成功');
+                    }
+                } catch (error) {
+                    console.error('紧急停止错误:', error);
+                }
+            }
+
+            getModeText(mode) {
+                const modeTexts = {
+                    'stand': '站立',
+                    'walk': '行走',
+                    'sit': '蹲下',
+                    'recover': '恢复'
+                };
+                return modeTexts[mode] || mode;
+            }
+
+            showNotification(message, type = 'success') {
+                // 创建通知元素
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    padding: 15px 25px;
+                    background: ${type === 'error' ? '#dc3545' : type === 'warning' ? '#ffc107' : '#28a745'};
+                    color: white;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+                    z-index: 10000;
+                    font-weight: bold;
+                    animation: slideIn 0.3s ease;
+                `;
+                notification.textContent = message;
+                document.body.appendChild(notification);
+
+                // 3秒后移除
+                setTimeout(() => {
+                    notification.style.animation = 'slideOut 0.3s ease';
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 300);
+                }, 3000);
+            }
+
             handleKeyDown(e) {
-                if (e.repeat) return; // 防止重复触发
+                const key = e.key.toLowerCase();
                 
-                switch(e.key.toLowerCase()) {
-                    case 'arrowup':
-                        this.moveForward();
-                        break;
-                    case 'arrowdown':
-                        this.moveBackward();
-                        break;
-                    case 'arrowleft':
-                        this.turnLeft();
-                        break;
-                    case 'arrowright':
-                        this.turnRight();
-                        break;
-                    case ' ':
-                        e.preventDefault();
-                        this.stop();
-                        break;
+                // 添加到激活按键集合
+                this.activeKeys.add(key);
+                
+                // 立即更新目标速度
+                this.updateTargetVelocityFromKeys();
+                
+                // 空格键停止
+                if (key === ' ') {
+                    e.preventDefault();
+                    this.activeKeys.clear();
+                    this.stop();
                 }
             }
 
             handleKeyUp(e) {
-                // 释放方向键时停止
-                if (['w', 's', 'a', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
-                    this.stop();
+                const key = e.key.toLowerCase();
+                
+                // 从激活按键集合中移除
+                this.activeKeys.delete(key);
+                
+                // 更新目标速度
+                this.updateTargetVelocityFromKeys();
+            }
+
+            updateTargetVelocityFromKeys() {
+                let velX = 0;
+                let velTheta = 0;
+                
+                // 检查前进/后退键
+                if (this.activeKeys.has('w') || this.activeKeys.has('arrowup')) {
+                    velX = this.linearSpeed;
+                } else if (this.activeKeys.has('s') || this.activeKeys.has('arrowdown')) {
+                    velX = -this.linearSpeed;
                 }
+                
+                // 检查左转/右转键
+                if (this.activeKeys.has('a') || this.activeKeys.has('arrowleft')) {
+                    velTheta = this.angularSpeed;
+                } else if (this.activeKeys.has('d') || this.activeKeys.has('arrowright')) {
+                    velTheta = -this.angularSpeed;
+                }
+                
+                // 更新目标速度
+                this.targetVelX = velX;
+                this.targetVelY = 0;
+                this.targetVelTheta = velTheta;
             }
 
             async checkConnection() {
@@ -393,7 +793,7 @@
         // 页面卸载时停止机器人
         window.addEventListener('beforeunload', () => {
             // 发送停止指令
-            fetch('http://127.0.0.1:8000/api/robot/control', {
+            fetch('http://127.0.0.1:8000/api/robot/cmd_vel', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ vel_x: 0, vel_y: 0, vel_theta: 0 }),
