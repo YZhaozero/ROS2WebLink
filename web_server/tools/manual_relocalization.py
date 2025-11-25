@@ -5,16 +5,29 @@ import math
 import threading
 import time
 import struct
+import base64
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pypcd4
 import transforms3d
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
+from fastapi import APIRouter, Response
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+class PoseModel(BaseModel):
+    x: float
+    y: float
+    z: float
+    roll: float
+    pitch: float
+    yaw: float
+
+class ConfirmPoseRequest(BaseModel):
+    pose: PoseModel
+    ref_odom: Optional[PoseModel] = None
 
 class ManualRelocalizationTool:
     def __init__(self, ros_bridge):
@@ -22,37 +35,33 @@ class ManualRelocalizationTool:
         self.router = APIRouter()
         
         # Get map path from ROS parameter (same as localizer uses)
-        self.map_path = self._get_map_path_from_ros()
+        self.map_path = self._normalize_map_path(self._get_map_path_from_ros())
         logger.info(f"Using map path from ROS: {self.map_path}")
-        
-        # Pose State (World Frame)
-        self.pose = {
-            "x": 0.0, "y": 0.0, "z": 0.0,
-            "roll": 0.0, "pitch": 0.0, "yaw": 0.0
-        }
         
         # Data State
         self.map_points: Optional[bytes] = None # Downsampled, float32 bytes
         self.scan_points: Optional[np.ndarray] = None # Raw scan points
         self.scan_frame_id: Optional[str] = None # Frame ID of scan points
         self.scan_lock = threading.Lock()
+        self._map_reload_lock = threading.Lock()
+        self._map_file_mtime: Optional[float] = None
+        self._loaded_map_path: Optional[str] = None
         
         # TF Buffer for coordinate transformation
         self.tf_buffer = None
         self.tf_listener = None
         self._setup_tf()
         
-        # WebSocket Connections
-        self.active_connections: List[WebSocket] = []
-        
         # Load Map asynchronously
-        threading.Thread(target=self._load_map, daemon=True).start()
+        threading.Thread(target=self._load_map, kwargs={"map_path": self.map_path}, daemon=True).start()
         
         # Setup ROS Subscription
         self._setup_ros()
         
         # Setup Routes
-        self.router.add_api_websocket_route("/ws/manual_reloc", self.websocket_endpoint)
+        self.router.add_api_route("/api/manual_reloc/map", self.get_map, methods=["GET"])
+        self.router.add_api_route("/api/manual_reloc/capture", self.get_capture, methods=["GET"])
+        self.router.add_api_route("/api/manual_reloc/confirm", self.confirm_pose, methods=["POST"])
     
     def _setup_tf(self):
         """Setup TF buffer and listener for coordinate transformation."""
@@ -80,7 +89,8 @@ class ManualRelocalizationTool:
             if hasattr(self.ros_bridge, "_adapter") and hasattr(self.ros_bridge._adapter, "node"):
                 node = self.ros_bridge._adapter.node
                 # Declare and get parameter
-                node.declare_parameter("default_map_path", "")
+                if not node.has_parameter("default_map_path"):
+                    node.declare_parameter("default_map_path", "")
                 map_path = node.get_parameter("default_map_path").get_parameter_value().string_value
                 if map_path:
                     logger.info(f"Got map path from ROS parameter: {map_path}")
@@ -106,44 +116,92 @@ class ManualRelocalizationTool:
         default_path = "/home/guest/tron_ros2/src/tron_slam/localizer/PCD/map_1121_test_004.pcd"
         logger.warning(f"Using fallback map path: {default_path}")
         return default_path
-
-    def _load_map(self):
-        logger.info(f"Loading map from {self.map_path}...")
+    
+    def _normalize_map_path(self, map_path: str) -> str:
+        if not map_path:
+            return ""
         try:
-            path = Path(self.map_path)
-            if not path.exists():
-                logger.error(f"Map file not found at {path}!")
+            return str(Path(map_path.strip()).expanduser().resolve(strict=False))
+        except Exception:
+            return map_path.strip()
+
+    def _load_map(self, map_path: Optional[str] = None):
+        target_path = self._normalize_map_path(map_path or self.map_path)
+        if not target_path:
+            logger.error("No map path available, cannot load map")
+            return
+        with self._map_reload_lock:
+            logger.info(f"Loading map from {target_path}...")
+            try:
+                path = Path(target_path)
+                if not path.exists():
+                    logger.error(f"Map file not found at {path}!")
+                    return
+                    
+                # Load PCD
+                # pypcd4 is fast
+                pc = pypcd4.PointCloud.from_path(path)
+                points_ros = pc.numpy(("x", "y", "z"))  # ROS coordinates
+                
+                # Coordinate transformation: ROS -> Three.js
+                # ROS: X forward, Y left, Z up (right-handed)
+                # Three.js: X right, Y up, Z backward (right-handed, but different convention)
+                # Transform: Three.js X = ROS X, Three.js Y = ROS Z, Three.js Z = -ROS Y
+                points_threejs = np.zeros_like(points_ros)
+                points_threejs[:, 0] = points_ros[:, 0]   # X: forward -> right (same)
+                points_threejs[:, 1] = points_ros[:, 2]   # Y: up -> up (same)
+                points_threejs[:, 2] = -points_ros[:, 1]  # Z: left -> backward (negate)
+                
+                # Downsample to ~500k points for web visualization
+                # This is critical for browser performance
+                target_size = 500000
+                if len(points_threejs) > target_size:
+                    indices = np.random.choice(len(points_threejs), target_size, replace=False)
+                    points_threejs = points_threejs[indices]
+                    
+                # Convert to flat float32 buffer: [x, y, z, x, y, z, ...]
+                self.map_points = points_threejs.astype(np.float32).tobytes()
+                self.map_path = target_path
+                try:
+                    self._map_file_mtime = path.stat().st_mtime
+                except Exception:
+                    self._map_file_mtime = None
+                self._loaded_map_path = target_path
+                logger.info(f"Map loaded: {len(points_threejs)} points (transformed to Three.js coordinates)")
+                
+            except Exception as e:
+                logger.error(f"Failed to load map: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # Keep previous map_points if available
+
+    async def _ensure_latest_map_loaded(self):
+        """Reload the downsampled map if the source PCD has changed."""
+        new_map_path = self._normalize_map_path(self._get_map_path_from_ros())
+        if not new_map_path:
+            return
+        need_reload = False
+        if self._loaded_map_path != new_map_path:
+            logger.info(f"Detected map path change: {self._loaded_map_path} -> {new_map_path}")
+            need_reload = True
+        else:
+            try:
+                current_mtime = Path(new_map_path).stat().st_mtime
+                if self._map_file_mtime is None or current_mtime > self._map_file_mtime:
+                    logger.info("Detected map file timestamp update, reloading map cloud")
+                    need_reload = True
+            except FileNotFoundError:
+                logger.error(f"Map file not found at {new_map_path}")
+                self.map_points = None
+                self._loaded_map_path = None
                 return
-                
-            # Load PCD
-            # pypcd4 is fast
-            pc = pypcd4.PointCloud.from_path(path)
-            points_ros = pc.numpy(("x", "y", "z"))  # ROS coordinates
-            
-            # Coordinate transformation: ROS -> Three.js
-            # ROS: X forward, Y left, Z up (right-handed)
-            # Three.js: X right, Y up, Z backward (right-handed, but different convention)
-            # Transform: Three.js X = ROS X, Three.js Y = ROS Z, Three.js Z = -ROS Y
-            points_threejs = np.zeros_like(points_ros)
-            points_threejs[:, 0] = points_ros[:, 0]   # X: forward -> right (same)
-            points_threejs[:, 1] = points_ros[:, 2]   # Y: up -> up (same)
-            points_threejs[:, 2] = -points_ros[:, 1]  # Z: left -> backward (negate)
-            
-            # Downsample to ~100k points for web visualization
-            # This is critical for browser performance
-            target_size = 100000
-            if len(points_threejs) > target_size:
-                indices = np.random.choice(len(points_threejs), target_size, replace=False)
-                points_threejs = points_threejs[indices]
-                
-            # Convert to flat float32 buffer: [x, y, z, x, y, z, ...]
-            self.map_points = points_threejs.astype(np.float32).tobytes()
-            logger.info(f"Map loaded: {len(points_threejs)} points (transformed to Three.js coordinates)")
-            
-        except Exception as e:
-            logger.error(f"Failed to load map: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+        
+        if need_reload:
+            # Clear existing data so callers do not receive stale maps
+            self.map_points = None
+            self._loaded_map_path = None
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._load_map, new_map_path)
 
     def _setup_ros(self):
         # Subscribe to Livox points
@@ -151,8 +209,6 @@ class ManualRelocalizationTool:
             from sensor_msgs.msg import PointCloud2
             from rclpy.qos import QoSProfile, ReliabilityPolicy
             import sensor_msgs_py.point_cloud2 as pc2
-            from tf2_ros import Buffer, TransformListener
-            import tf2_geometry_msgs
             
             def scan_callback(msg):
                 # Parse PointCloud2
@@ -225,371 +281,240 @@ class ManualRelocalizationTool:
         except Exception as e:
             logger.error(f"Setup ROS error: {e}")
 
-    async def websocket_endpoint(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info("Manual Reloc Client Connected")
+    async def get_map(self):
+        """HTTP endpoint to get the map point cloud."""
+        await self._ensure_latest_map_loaded()
+        if not self.map_points:
+            return Response(status_code=503, content="Map not loaded yet")
         
-        try:
-            # Wait for map to load (max 5 seconds)
-            max_wait = 5.0
-            waited = 0.0
-            while not self.map_points and waited < max_wait:
-                await asyncio.sleep(0.1)
-                waited += 0.1
-            
-            # Send Map if available
-            if self.map_points:
-                # Ensure header is exactly 4 bytes
-                header = b'MAP\x00'  # 4 bytes: 'M', 'A', 'P', null
-                logger.info(f"Sending map to client ({len(self.map_points)//12} points, {len(self.map_points)} bytes)")
-                await websocket.send_bytes(header + self.map_points)
-            else:
-                logger.warning("Map not loaded yet, client will not see map")
-            
-            # Send Initial Pose
-            await websocket.send_json({"type": "pose", "data": self.pose})
-            
-            # Start broadcast loop for this client
-            # We use a task to push updates while waiting for input
-            broadcast_task = asyncio.create_task(self._client_broadcast_loop(websocket))
-            
-            while True:
-                data = await websocket.receive_text()
-                msg = json.loads(data)
+        headers = {"Cache-Control": "no-store, max-age=0"}
+        return Response(content=self.map_points, media_type="application/octet-stream", headers=headers)
+
+    async def get_capture(self):
+        """
+        HTTP endpoint to capture current scan and odom.
+        Returns JSON with:
+        - scan: Base64 encoded float32 buffer (transformed to Three.js coords)
+        - odom: Current Odom pose (odom -> base_link)
+        - pose: Current Map pose (map -> base_link) for initial guess
+        """
+        # 1. Get latest scan (with timeout)
+        scan = None
+        scan_frame_id = None
+        
+        # Try to get scan for up to 2 seconds
+        for _ in range(20):
+            with self.scan_lock:
+                if self.scan_points is not None:
+                    scan = self.scan_points.copy()
+                    scan_frame_id = self.scan_frame_id
+                    break
+            await asyncio.sleep(0.1)
+        
+        if scan is None:
+             logger.warning("Capture failed: No scan data received after timeout")
+             return Response(status_code=404, content="No scan data available yet (timeout)")
+        
+        # 2. Transform scan to map frame using TF (if needed)
+        # Note: We want the scan in the robot's LOCAL frame (base_link) usually, 
+        # but for the visualizer, we might want it in map frame relative to where the robot IS.
+        # Actually, the visualizer logic was:
+        # Transformed Scan = (Scan in Map) * R_pose.T + T_pose
+        # Wait, the visualizer logic was confusing.
+        # Let's simplify: Return scan in ROBOT frame (base_link).
+        # The frontend will rotate/translate it based on user's manual pose.
+        
+        # BUT, the scan we receive might be in 'livox_frame' or 'lidar_frame'.
+        # We should transform it to 'base_link' first.
+        scan_in_base = scan
+        
+        # Critical: Ensure we are transforming to base_link, otherwise calibration is wrong
+        if self.tf_buffer:
+            try:
+                # If frame_id not provided, assume livox_frame (fallback)
+                source_frame = scan_frame_id if scan_frame_id else "livox_frame"
                 
-                if msg["type"] == "move":
-                    self._handle_move(msg)
-                elif msg["type"] == "set_pose":
-                    # Allow setting absolute pose
-                    new_pose = msg.get("data", {})
-                    for k, v in new_pose.items():
-                        if k in self.pose:
-                            self.pose[k] = float(v)
-                elif msg["type"] == "reset":
-                    self.pose = {k: 0.0 for k in self.pose}
-                elif msg["type"] == "confirm":
-                    self._publish_pose()
+                if source_frame != "base_link":
+                    import rclpy
+                    from rclpy.duration import Duration
                     
-        except WebSocketDisconnect:
-            logger.info("Manual Reloc Client Disconnected")
-        except Exception as e:
-            logger.error(f"WebSocket error: {e}")
-        finally:
-            if websocket in self.active_connections:
-                self.active_connections.remove(websocket)
-            # broadcast_task will be cancelled when websocket closes and loop raises error
-
-    def _handle_move(self, msg):
-        # msg: {axis: 'x', value: 0.1}
-        axis = msg.get("axis")
-        value = float(msg.get("value", 0.0))
+                    # Get transform from source_frame to base_link
+                    transform = self.tf_buffer.lookup_transform(
+                        "base_link",
+                        source_frame,
+                        rclpy.time.Time(),
+                        timeout=Duration(seconds=0.2)
+                    )
+                    t = transform.transform.translation
+                    q = transform.transform.rotation
+                    R_tf = transforms3d.quaternions.quat2mat([q.w, q.x, q.y, q.z])
+                    T_tf = np.array([t.x, t.y, t.z])
+                    
+                    # P_base = R * P_source + T
+                    scan_in_base = np.dot(scan, R_tf.T) + T_tf
+                    logger.info(f"Transformed scan from {source_frame} to base_link")
+            except Exception as e:
+                logger.error(f"CRITICAL: TF transform failed ({scan_frame_id}->base_link): {e}")
+                return Response(status_code=500, content=f"TF Error: Could not transform scan to base_link. Check TF tree. Error: {e}")
+        else:
+             logger.warning("TF Buffer not ready, using raw scan (might be inaccurate if not in base_link)")
         
-        # Handle relative movement
-        if axis in self.pose:
-            self.pose[axis] += value
+        # 3. Convert to Three.js coordinates (for visualization convenience)
+        # ROS: X forward, Y left, Z up
+        # Three.js: X right, Y up, Z backward (Standard Three.js)
+        # OUR Three.js setup in frontend:
+        # Map points were converted: X->X, Y->Z, Z->-Y
+        # So we should do the same for scan points
+        scan_threejs = np.zeros_like(scan_in_base)
+        scan_threejs[:, 0] = scan_in_base[:, 0]   # X: same
+        scan_threejs[:, 1] = scan_in_base[:, 2]   # Y: Z -> Y
+        scan_threejs[:, 2] = -scan_in_base[:, 1]  # Z: -Y -> Z
+        
+        scan_b64 = base64.b64encode(scan_threejs.astype(np.float32).tobytes()).decode('utf-8')
+        
+        # 4. Get Odom and Map Pose
+        odom_pose = self._get_current_odom_pose()
+        map_pose = self._get_current_robot_pose()
+        
+        if not map_pose:
+            # Default to 0
+            map_pose = {"x": 0, "y": 0, "z": 0, "roll": 0, "pitch": 0, "yaw": 0}
+            
+        return {
+            "scan": scan_b64,
+            "odom": odom_pose,
+            "pose": map_pose
+        }
 
-    def _get_current_robot_pose(self) -> Optional[Dict[str, float]]:
+    async def confirm_pose(self, req: ConfirmPoseRequest):
+        """HTTP endpoint to confirm pose."""
+        pose_dict = req.pose.dict()
+        ref_odom_dict = req.ref_odom.dict() if req.ref_odom else None
+        
+        self._publish_pose(pose_dict, ref_odom_dict)
+        return {"status": "ok", "message": "Pose published"}
+
+    def _get_current_odom_pose(self) -> Optional[Dict[str, float]]:
         """
-        Get current robot pose from TF or odom.
-        Returns pose in map frame: {x, y, z, roll, pitch, yaw} or None if unavailable.
+        Get current robot pose in ODOM frame (odom -> base_link).
         """
-        # Try to get from TF first (most accurate)
+        # Try to get from TF
         if self.tf_buffer:
             try:
                 import rclpy
                 from rclpy.duration import Duration
-                
-                # Try to get transform from map to base_link
+                transform = self.tf_buffer.lookup_transform(
+                    "odom",
+                    "base_link",
+                    rclpy.time.Time(),
+                    timeout=Duration(seconds=0.05)
+                )
+                t = transform.transform.translation
+                q = transform.transform.rotation
+                quat = [q.w, q.x, q.y, q.z]
+                roll, pitch, yaw = transforms3d.euler.quat2euler(quat, axes='sxyz')
+                return {
+                    "x": float(t.x), "y": float(t.y), "z": float(t.z),
+                    "roll": float(roll), "pitch": float(pitch), "yaw": float(yaw)
+                }
+            except Exception:
+                pass
+        
+        # Fallback: ros_bridge.latest_odom
+        if hasattr(self.ros_bridge, 'latest_odom') and self.ros_bridge.latest_odom:
+            try:
+                msg = self.ros_bridge.latest_odom
+                if msg.header.frame_id == "odom":
+                    x = msg.pose.pose.position.x
+                    y = msg.pose.pose.position.y
+                    z = msg.pose.pose.position.z
+                    q = msg.pose.pose.orientation
+                    quat = [q.w, q.x, q.y, q.z]
+                    roll, pitch, yaw = transforms3d.euler.quat2euler(quat, axes='sxyz')
+                    return {
+                        "x": float(x), "y": float(y), "z": float(z),
+                        "roll": float(roll), "pitch": float(pitch), "yaw": float(yaw)
+                    }
+            except Exception:
+                pass
+        return None
+
+    def _get_current_robot_pose(self) -> Optional[Dict[str, float]]:
+        """Get current robot pose from TF (map -> base_link)."""
+        if self.tf_buffer:
+            try:
+                import rclpy
+                from rclpy.duration import Duration
                 transform = self.tf_buffer.lookup_transform(
                     "map",
                     "base_link",
                     rclpy.time.Time(),
                     timeout=Duration(seconds=0.5)
                 )
-                
                 t = transform.transform.translation
                 q = transform.transform.rotation
-                
-                # Convert quaternion to euler angles
                 quat = [q.w, q.x, q.y, q.z]
                 roll, pitch, yaw = transforms3d.euler.quat2euler(quat, axes='sxyz')
-                
-                current_pose = {
-                    "x": float(t.x),
-                    "y": float(t.y),
-                    "z": float(t.z),
-                    "roll": float(roll),
-                    "pitch": float(pitch),
-                    "yaw": float(yaw)
+                return {
+                    "x": float(t.x), "y": float(t.y), "z": float(t.z),
+                    "roll": float(roll), "pitch": float(pitch), "yaw": float(yaw)
                 }
-                
-                logger.info(f"Got current pose from TF: x={current_pose['x']:.3f}, y={current_pose['y']:.3f}, z={current_pose['z']:.3f}, yaw={current_pose['yaw']:.3f}")
-                return current_pose
-                
-            except Exception as e:
-                logger.debug(f"TF lookup failed: {e}, trying odom")
-        
-        # Fallback: get from odom message
-        if hasattr(self.ros_bridge, 'latest_odom') and self.ros_bridge.latest_odom:
-            try:
-                msg = self.ros_bridge.latest_odom
-                
-                # Only use if it's in map frame
-                if msg.header.frame_id == "map":
-                    x = msg.pose.pose.position.x
-                    y = msg.pose.pose.position.y
-                    z = msg.pose.pose.position.z
-                    
-                    q = msg.pose.pose.orientation
-                    quat = [q.w, q.x, q.y, q.z]
-                    roll, pitch, yaw = transforms3d.euler.quat2euler(quat, axes='sxyz')
-                    
-                    current_pose = {
-                        "x": float(x),
-                        "y": float(y),
-                        "z": float(z),
-                        "roll": float(roll),
-                        "pitch": float(pitch),
-                        "yaw": float(yaw)
-                    }
-                    
-                    logger.info(f"Got current pose from odom: x={current_pose['x']:.3f}, y={current_pose['y']:.3f}, z={current_pose['z']:.3f}, yaw={current_pose['yaw']:.3f}")
-                    return current_pose
-            except Exception as e:
-                logger.debug(f"Failed to get pose from odom: {e}")
-        
-        logger.warning("Could not get current robot pose, will use target pose directly")
+            except Exception:
+                pass
         return None
-    
+
     def _compute_transform_matrix(self, pose: Dict[str, float]) -> tuple:
-        """
-        Convert pose to 4x4 transformation matrix.
-        Returns (R, T) where R is 3x3 rotation matrix and T is 3x1 translation vector.
-        """
         T = np.array([pose["x"], pose["y"], pose["z"]])
-        R = transforms3d.euler.euler2mat(
-            pose["roll"], pose["pitch"], pose["yaw"],
-            axes='sxyz'
-        )
+        R = transforms3d.euler.euler2mat(pose["roll"], pose["pitch"], pose["yaw"], axes='sxyz')
         return R, T
     
     def _apply_transform(self, R: np.ndarray, T: np.ndarray, pose: Dict[str, float]) -> Dict[str, float]:
-        """
-        Apply transformation matrix to a pose.
-        Returns new pose after transformation.
-        """
-        # Convert pose to matrix form
         pose_T = np.array([pose["x"], pose["y"], pose["z"]])
-        pose_R = transforms3d.euler.euler2mat(
-            pose["roll"], pose["pitch"], pose["yaw"],
-            axes='sxyz'
-        )
-        
-        # Apply transformation: new_pose = R * pose + T
-        # For pose transformation: new_R = R * pose_R, new_T = R * pose_T + T
+        pose_R = transforms3d.euler.euler2mat(pose["roll"], pose["pitch"], pose["yaw"], axes='sxyz')
         new_R = np.dot(R, pose_R)
         new_T = np.dot(R, pose_T) + T
-        
-        # Convert back to euler angles
         roll, pitch, yaw = transforms3d.euler.mat2euler(new_R, axes='sxyz')
-        
         return {
-            "x": float(new_T[0]),
-            "y": float(new_T[1]),
-            "z": float(new_T[2]),
-            "roll": float(roll),
-            "pitch": float(pitch),
-            "yaw": float(yaw)
+            "x": float(new_T[0]), "y": float(new_T[1]), "z": float(new_T[2]),
+            "roll": float(roll), "pitch": float(pitch), "yaw": float(yaw)
         }
-    
-    def _publish_pose(self):
-        """
-        Publish pose using transform matrix approach.
-        Instead of directly setting initial pose, we:
-        1. Get current robot pose
-        2. Compute transform matrix from current to target
-        3. Apply transform to get final pose
-        4. Publish final pose
-        """
-        # Target pose (what user wants)
-        target_pose = {
-            "x": self.pose["x"],
-            "y": self.pose["y"],
-            "z": self.pose["z"],
-            "roll": self.pose["roll"],
-            "pitch": self.pose["pitch"],
-            "yaw": self.pose["yaw"]
-        }
+
+    def _publish_pose(self, pose: Dict[str, float], ref_odom: Optional[Dict[str, float]] = None):
+        target_pose = pose
+        final_pose = target_pose
         
         try:
-            # Get current robot pose
-            current_pose = self._get_current_robot_pose()
-            
-            if current_pose is None:
-                # Fallback: if we can't get current pose, use target pose directly
-                logger.warning("Using target pose directly (could not get current pose)")
-                final_pose = target_pose
-            else:
-                # Compute transform matrix from current to target
-                # We want: T_final = T_target * inv(T_current) * T_current = T_target
-                # So the relative transform is: T_relative = T_target * inv(T_current)
-                
-                # Get current pose transform (map -> base_link)
-                R_current, T_current = self._compute_transform_matrix(current_pose)
-                
-                # Get target pose transform (map -> base_link)
-                R_target, T_target = self._compute_transform_matrix(target_pose)
-                
-                # Compute relative transform: T_relative = T_target * inv(T_current)
-                # For SE(3): inv([R, T]) = [R^T, -R^T * T]
-                R_current_inv = R_current.T
-                T_current_inv = -np.dot(R_current_inv, T_current)
-                
-                # Compose transforms: T_relative = T_target * T_current_inv
-                # [R_relative, T_relative] = [R_target * R_current_inv, R_target * T_current_inv + T_target]
-                R_relative = np.dot(R_target, R_current_inv)
-                T_relative = np.dot(R_target, T_current_inv) + T_target
-                
-                # Apply relative transform to current pose to get final pose
-                # This compensates for robot movement during delay
-                # final_pose = T_relative * current_pose = T_target * inv(T_current) * T_current = T_target
-                final_pose = self._apply_transform(R_relative, T_relative, current_pose)
-                
-                logger.info(
-                    f"Transform matrix computed: "
-                    f"current=({current_pose['x']:.3f}, {current_pose['y']:.3f}, {current_pose['z']:.3f}, yaw={current_pose['yaw']:.3f}), "
-                    f"target=({target_pose['x']:.3f}, {target_pose['y']:.3f}, {target_pose['z']:.3f}, yaw={target_pose['yaw']:.3f}), "
-                    f"final=({final_pose['x']:.3f}, {final_pose['y']:.3f}, {final_pose['z']:.3f}, yaw={final_pose['yaw']:.3f})"
-                )
-            
-            # Publish final pose
+            if ref_odom is not None:
+                current_odom = self._get_current_odom_pose()
+                if current_odom:
+                    # P_final = P_target * inv(O_ref) * O_current
+                    R_target, T_target = self._compute_transform_matrix(target_pose)
+                    R_ref, T_ref = self._compute_transform_matrix(ref_odom)
+                    R_curr, T_curr = self._compute_transform_matrix(current_odom)
+                    
+                    R_ref_inv = R_ref.T
+                    T_ref_inv = -np.dot(R_ref_inv, T_ref)
+                    
+                    R_rel = np.dot(R_ref_inv, R_curr)
+                    T_rel = np.dot(R_ref_inv, T_curr) + T_ref_inv
+                    
+                    R_final = np.dot(R_target, R_rel)
+                    T_final = np.dot(R_target, T_rel) + T_target
+                    
+                    roll, pitch, yaw = transforms3d.euler.mat2euler(R_final, axes='sxyz')
+                    final_pose = {
+                        "x": float(T_final[0]), "y": float(T_final[1]), "z": float(T_final[2]),
+                        "roll": float(roll), "pitch": float(pitch), "yaw": float(yaw)
+                    }
+                    logger.info("Freeze Mode Update Applied")
+                else:
+                    logger.warning("No current odom, using target pose directly")
+
             self.ros_bridge.publish_initial_pose(
-                final_pose["x"], 
-                final_pose["y"], 
-                final_pose["z"], 
-                final_pose["yaw"], 
-                roll=final_pose["roll"], 
-                pitch=final_pose["pitch"]
+                final_pose["x"], final_pose["y"], final_pose["z"], final_pose["yaw"], 
+                roll=final_pose["roll"], pitch=final_pose["pitch"]
             )
-            logger.info(
-                f"Published pose via transform matrix: x={final_pose['x']:.3f}, y={final_pose['y']:.3f}, "
-                f"z={final_pose['z']:.3f}, roll={final_pose['roll']:.3f}, pitch={final_pose['pitch']:.3f}, "
-                f"yaw={final_pose['yaw']:.3f}"
-            )
+            logger.info(f"Published pose: x={final_pose['x']:.2f}, y={final_pose['y']:.2f}")
             
         except Exception as e:
-            logger.error(f"Failed to publish pose with transform: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # Fallback: try direct publish
-            try:
-                self.ros_bridge.publish_initial_pose(
-                    target_pose["x"], 
-                    target_pose["y"], 
-                    target_pose["z"], 
-                    target_pose["yaw"], 
-                    roll=target_pose["roll"], 
-                    pitch=target_pose["pitch"]
-                )
-                logger.info("Fallback: Published target pose directly")
-            except Exception as e2:
-                logger.error(f"Fallback publish also failed: {e2}")
-
-    async def _client_broadcast_loop(self, ws: WebSocket):
-        """Push live scan updates to client."""
-        try:
-            while ws.client_state == WebSocketState.CONNECTED:
-                start_time = time.time()
-                
-                # 1. Get latest scan
-                with self.scan_lock:
-                    scan = self.scan_points.copy() if self.scan_points is not None else None
-                    scan_frame_id = self.scan_frame_id
-                
-                if scan is not None:
-                    # 2. Transform scan to map frame using TF (if needed)
-                    scan_in_map = scan.copy()
-                    
-                    # If scan is not in map frame, transform it using TF
-                    if scan_frame_id and scan_frame_id != "map" and self.tf_buffer:
-                        try:
-                            import rclpy
-                            from rclpy.duration import Duration
-                            
-                            # Get transform from scan_frame to map
-                            transform = self.tf_buffer.lookup_transform(
-                                "map",
-                                scan_frame_id,
-                                rclpy.time.Time(),
-                                timeout=Duration(seconds=0.2)
-                            )
-                            
-                            # Extract transform matrix
-                            t = transform.transform.translation
-                            q = transform.transform.rotation
-                            
-                            # Convert quaternion to rotation matrix
-                            R_tf = transforms3d.quaternions.quat2mat([q.w, q.x, q.y, q.z])
-                            T_tf = np.array([t.x, t.y, t.z])
-                            
-                            # Apply TF transform: P_map = R_tf * P_scan + T_tf
-                            scan_in_map = np.dot(scan, R_tf.T) + T_tf
-                            
-                        except Exception as e:
-                            logger.debug(f"TF transform failed ({scan_frame_id}->map): {e}, using direct transform")
-                            # If TF fails, assume scan is already close to map frame
-                            scan_in_map = scan
-                    
-                    # 3. Apply user-adjusted pose transform to preview alignment
-                    # The pose is map->base_link (initial pose user wants to set)
-                    # The scan is now in map frame (after TF conversion)
-                    # We apply the pose transform to show how scan aligns with map at this pose
-                    # Note: This is for preview only - the actual pose will be sent to ROS
-                    
-                    # Get translation (map frame)
-                    T_pose = np.array([self.pose["x"], self.pose["y"], self.pose["z"]])
-                    
-                    # Get rotation matrix (map frame, roll-pitch-yaw)
-                    R_pose = transforms3d.euler.euler2mat(
-                        self.pose["roll"], self.pose["pitch"], self.pose["yaw"], 
-                        axes='sxyz'
-                    )
-                    
-                    # Apply pose transform to preview alignment
-                    # This shows where the scan would be when robot is at this pose
-                    transformed_scan_map = np.dot(scan_in_map, R_pose.T) + T_pose
-                    
-                    # 3. Convert to Three.js coordinates for visualization
-                    # Use the SAME transformation as pointcloud-viewer.js:
-                    # Three.js X = ROS X
-                    # Three.js Y = ROS Z (Z轴向上)
-                    # Three.js Z = -ROS Y (Y轴反向)
-                    transformed_scan_threejs = np.zeros_like(transformed_scan_map)
-                    transformed_scan_threejs[:, 0] = transformed_scan_map[:, 0]   # X: same
-                    transformed_scan_threejs[:, 1] = transformed_scan_map[:, 2]   # Y: Z -> Y (Z轴向上)
-                    transformed_scan_threejs[:, 2] = -transformed_scan_map[:, 1]  # Z: -Y -> Z (Y轴反向)
-                    
-                    # 4. Send
-                    scan_bytes = transformed_scan_threejs.astype(np.float32).tobytes()
-                    
-                    # Send Pose Update (for UI numbers)
-                    await ws.send_json({
-                        "type": "update", 
-                        "pose": self.pose,
-                        "scan_count": len(scan)
-                    })
-                    
-                    # Send Binary Scan (ensure header is 4 bytes)
-                    scan_header = b'SCAN'  # Already 4 bytes
-                    await ws.send_bytes(scan_header + scan_bytes)
-                
-                # Cap at 10Hz
-                elapsed = time.time() - start_time
-                delay = max(0.1 - elapsed, 0.01)
-                await asyncio.sleep(delay)
-                
-        except Exception as e:
-            # WebSocket closed or other error
-            pass
-
+            logger.error(f"Failed to publish pose: {e}")

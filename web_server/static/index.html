@@ -11,6 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   </head>
   <body>
+    <div id="notification-container" class="notification-container"></div>
     <header class="top-bar">
       <h1>Tron 机器人建图导航控制台</h1>
       <span id="status-indicator">后端初始化中...</span>
@@ -229,6 +230,26 @@
           <ul id="route-list"></ul>
         </section>
         
+        <section>
+          <h3>💾 存储管理</h3>
+          <div class="status-item">
+             <span class="status-label">磁盘使用:</span>
+             <span id="disk-usage-text">检测中...</span>
+          </div>
+          <div style="width: 100%; background: #34495e; height: 10px; border-radius: 5px; margin-top: 5px;">
+             <div id="disk-usage-bar" style="width: 0%; background: #2ecc71; height: 100%; border-radius: 5px; transition: width 0.5s;"></div>
+          </div>
+          
+          <div style="margin-top: 15px;">
+            <h4 style="margin: 5px 0; font-size: 0.9em;">残留录包 (Rosbags)</h4>
+            <div id="rosbag-list" style="max-height: 150px; overflow-y: auto; background: #2c3e50; padding: 5px; border-radius: 4px; font-size: 0.8em;">
+               <!-- 列表项 -->
+               <div style="color: #bdc3c7; text-align: center; padding: 10px;">加载中...</div>
+            </div>
+            <button id="btn-cleanup-rosbags" class="action-btn warning" style="width: 100%; margin-top: 10px; background-color: #e67e22;">🧹 一键清理旧录包 (>7天)</button>
+          </div>
+        </section>
+
         <section>
           <h3>🔬 重定位可视化</h3>
           <div class="button-row">

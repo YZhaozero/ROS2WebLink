@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manual Relocalization Tool</title>
+    <title>Manual Relocalization Tool (HTTP Mode)</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; color: white; font-family: sans-serif; }
         #container { width: 100vw; height: 100vh; }
@@ -26,35 +26,66 @@
         .legend { font-size: 12px; color: #aaa; margin-top: 10px; border-top: 1px solid #444; padding-top: 10px; }
         .key-hint { display: inline-block; background: #444; padding: 2px 6px; border-radius: 3px; margin: 0 2px; font-family: monospace; color: #fff; }
         #status { position: absolute; top: 20px; left: 20px; color: #f1c40f; font-weight: bold; font-size: 18px; z-index: 100; text-shadow: 1px 1px 2px black; }
+        #minimap-container { 
+            position: absolute; 
+            bottom: 20px; 
+            left: 20px; 
+            width: 300px; 
+            height: 300px; 
+            background: rgba(0, 0, 0, 0.8); 
+            border: 2px solid #3498db; 
+            border-radius: 8px; 
+            padding: 10px; 
+            z-index: 100;
+        }
+        #minimap-title {
+            color: #ecf0f1;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+        #minimap-canvas {
+            width: 100%;
+            height: calc(100% - 25px);
+            background: #1a1a1a;
+            border-radius: 4px;
+        }
     </style>
     <!-- Three.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-    <div id="status">Connecting...</div>
+    <div id="status">Ready</div>
     <div id="container"></div>
+    
+    <!-- 2D Minimap -->
+    <div id="minimap-container">
+        <div id="minimap-title">🗺️ 2D 位置视图</div>
+        <canvas id="minimap-canvas" width="280" height="280"></canvas>
+    </div>
     
     <div id="ui-panel">
         <h3>Manual Initial Pose</h3>
         
         <div class="row">
-            <span>X (m)</span> <input type="number" id="val-x" step="0.1">
+            <span>X (m)</span> <input type="number" id="val-x" step="0.1" value="0">
         </div>
         <div class="row">
-            <span>Y (m)</span> <input type="number" id="val-y" step="0.1">
+            <span>Y (m)</span> <input type="number" id="val-y" step="0.1" value="0">
         </div>
         <div class="row">
-            <span>Z (m)</span> <input type="number" id="val-z" step="0.1">
+            <span>Z (m)</span> <input type="number" id="val-z" step="0.1" value="0">
         </div>
         <div class="row">
-            <span>Roll (rad)</span> <input type="number" id="val-roll" step="0.05">
+            <span>Roll (rad)</span> <input type="number" id="val-roll" step="0.05" value="0">
         </div>
         <div class="row">
-            <span>Pitch (rad)</span> <input type="number" id="val-pitch" step="0.05">
+            <span>Pitch (rad)</span> <input type="number" id="val-pitch" step="0.05" value="0">
         </div>
         <div class="row">
-            <span>Yaw (rad)</span> <input type="number" id="val-yaw" step="0.05">
+            <span>Yaw (rad)</span> <input type="number" id="val-yaw" step="0.05" value="0">
         </div>
         
         <hr style="border-color: #444;">
@@ -74,18 +105,24 @@
             <p><span class="key-hint">W</span> / <span class="key-hint">S</span> : Forward/Back (X)</p>
             <p><span class="key-hint">A</span> / <span class="key-hint">D</span> : Left/Right (Y)</p>
             <p><span class="key-hint">Q</span> / <span class="key-hint">E</span> : Rotate Yaw</p>
-            <p><span class="key-hint">R</span> / <span class="key-hint">F</span> : Rotate Roll (X轴)</p>
-            <p><span class="key-hint">T</span> / <span class="key-hint">G</span> : Rotate Pitch (Y轴)</p>
+            <p><span class="key-hint">R</span> / <span class="key-hint">F</span> : Rotate Roll</p>
+            <p><span class="key-hint">T</span> / <span class="key-hint">G</span> : Rotate Pitch</p>
             <p><span class="key-hint">Shift</span> + <span class="key-hint">W/S</span> : Up/Down (Z)</p>
-            <p>🔴 Red: Live Scan (Source)</p>
+            <p>🔴 Red: Snapshot Scan (Source)</p>
             <p>⚪ Grey: Map (Target)</p>
         </div>
 
-        <button class="confirm" onclick="confirmPose()">✅ Set Initial Pose</button>
+        <button onclick="captureScan()" style="margin-top: 20px; width: 100%; background: #e67e22;">📸 Capture Snapshot</button>
+        <button class="confirm" onclick="confirmPose()">✅ Confirm & Publish</button>
         <button onclick="resetView()" style="margin-top: 10px; width: 100%; background: #7f8c8d;">Reset Camera View</button>
     </div>
 
     <script>
+        // State
+        let currentPose = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 };
+        let refOdom = null; // The odom when scan was captured
+        let mapLoaded = false;
+        
         // Scene Setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x111111);
@@ -102,93 +139,380 @@
         // Helpers
         const axesHelper = new THREE.AxesHelper( 5 );
         scene.add( axesHelper );
-        
         const gridHelper = new THREE.GridHelper( 100, 100, 0x444444, 0x222222 );
         scene.add( gridHelper );
         
-        // Point Clouds
+        // Point Clouds & Markers
         let mapPoints = null;
+        let scanGroup = null; // Group holding scanPoints and robotMarker
         let scanPoints = null;
+        let robotMarker = null; // Group holding axes and arrow
         
-        // WebSocket
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/manual_reloc`);
-        ws.binaryType = "arraybuffer";
+        // 2D Minimap
+        const minimapCanvas = document.getElementById('minimap-canvas');
+        const minimapCtx = minimapCanvas.getContext('2d');
+        let map2D = null; // Stores 2D occupancy grid data
+        let robotPose2D = { x: 0, y: 0, yaw: 0 }; // Robot pose in map frame (user's adjusted pose)
         
-        const statusEl = document.getElementById('status');
+        // --- HTTP API ---
         
-        ws.onopen = () => {
-            statusEl.textContent = "Connected";
-            statusEl.style.color = "#2ecc71";
-        };
-        
-        ws.onclose = () => {
-            statusEl.textContent = "Disconnected - Check Server";
-            statusEl.style.color = "#e74c3c";
-        };
-        
-        ws.onerror = (err) => {
-            console.error("WebSocket Error:", err);
-        };
-        
-        ws.onmessage = (event) => {
-            if (typeof event.data === "string") {
-                // JSON Message
-                const msg = JSON.parse(event.data);
-                console.log("Received JSON:", msg);
-                if (msg.type === "pose" || msg.type === "update") {
-                    // Handle both {type: "pose", data: {...}} and {type: "update", pose: {...}}
-                    const poseData = msg.pose || msg.data;
-                    if (poseData) {
-                        updateUI(poseData);
+        async function load2DMap() {
+            try {
+                const response = await fetch('/api/robot/map');
+                const data = await response.json();
+                
+                console.log("2D Map API response:", data);
+                
+                if (data.Result === 0) {
+                    // Decode base64 data to array
+                    if (typeof data.data === 'string') {
+                        const binaryString = atob(data.data);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        // Convert to signed int8 array (occupancy values are -1 to 100)
+                        data.data = Array.from(new Int8Array(bytes.buffer));
                     }
-                    if (msg.scan_count) {
-                        console.log(`Scan count: ${msg.scan_count}`);
-                    }
-                }
-            } else {
-                // Binary Message
-                const buffer = event.data;
-                const headerBytes = new Uint8Array(buffer.slice(0, 4));
-                // Extract header string (remove null bytes and trim)
-                const headerStr = String.fromCharCode(...headerBytes.filter(b => b !== 0)).trim();
-                
-                console.log(`Received binary message, header: "${headerStr}", size: ${buffer.byteLength} bytes`);
-                
-                // Get data after header, ensure it's aligned to 4 bytes (Float32 requirement)
-                const dataStart = 4;
-                const dataLength = buffer.byteLength - dataStart;
-                // Round down to nearest multiple of 4
-                const alignedLength = Math.floor(dataLength / 4) * 4;
-                
-                if (alignedLength < 12) { // Need at least 3 floats (x, y, z) = 12 bytes
-                    console.warn(`Data too small: ${alignedLength} bytes`);
-                    return;
-                }
-                
-                const float32View = new Float32Array(buffer.slice(dataStart, dataStart + alignedLength));
-                
-                if (headerStr.startsWith("MAP")) {
-                    console.log(`Map data: ${float32View.length} floats = ${float32View.length/3} points`);
-                    updateMapCloud(float32View);
-                    statusEl.textContent = `Map Loaded: ${Math.floor(float32View.length/3)} points`;
-                } else if (headerStr.startsWith("SCAN")) {
-                    console.log(`Scan data: ${float32View.length} floats = ${float32View.length/3} points`);
-                    updateScanCloud(float32View);
+                    
+                    map2D = data;
+                    console.log(`2D Map loaded: ${data.width}x${data.height}, resolution: ${data.resolution}, data length: ${data.data.length}`);
+                    console.log("Sample values:", data.data.slice(0, 20));
+                    draw2DMinimap();
                 } else {
-                    console.warn(`Unknown binary header: "${headerStr}" (bytes: ${Array.from(headerBytes).join(',')})`);
+                    console.warn("2D map not available:", data.Error);
+                    drawFallbackMinimap();
+                }
+            } catch (e) {
+                console.error("Failed to load 2D map:", e);
+                drawFallbackMinimap();
+            }
+        }
+        
+        function drawFallbackMinimap() {
+            // Draw a simple coordinate system when no 2D map is available
+            const ctx = minimapCtx;
+            const w = minimapCanvas.width;
+            const h = minimapCanvas.height;
+            
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Draw grid
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            const gridSize = 20;
+            for (let x = 0; x < w; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+            for (let y = 0; y < h; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+            
+            // Draw axes
+            ctx.strokeStyle = '#3498db';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(w/2, 0);
+            ctx.lineTo(w/2, h);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, h/2);
+            ctx.lineTo(w, h/2);
+            ctx.stroke();
+            
+            // Draw robot at center
+            const robotX = w/2 + currentPose.x * 20; // Scale: 20 pixels per meter
+            const robotY = h/2 - currentPose.y * 20; // Flip Y
+            
+            const size = 8;
+            ctx.save();
+            ctx.translate(robotX, robotY);
+            ctx.rotate(-currentPose.yaw);
+            
+            ctx.fillStyle = '#e74c3c';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(size, 0);
+            ctx.lineTo(-size/2, size/2);
+            ctx.lineTo(-size/2, -size/2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.restore();
+            
+            // Draw text
+            ctx.fillStyle = '#95a5a6';
+            ctx.font = '12px monospace';
+            ctx.fillText('No 2D map (grid view)', 10, 20);
+        }
+        
+        function draw2DMinimap() {
+            if (!map2D) return;
+            
+            const canvas = minimapCanvas;
+            const ctx = minimapCtx;
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            // Clear with dark background
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Calculate scale to fit map in canvas
+            const mapWidth = map2D.width * map2D.resolution;
+            const mapHeight = map2D.height * map2D.resolution;
+            const scale = Math.min(w / mapWidth, h / mapHeight) * 0.9;
+            
+            const offsetX = (w - mapWidth * scale) / 2;
+            const offsetY = (h - mapHeight * scale) / 2;
+            
+            console.log('[MANUAL_RELOC] Drawing minimap:', {
+                mapSize: {w: map2D.width, h: map2D.height},
+                mapWorld: {w: mapWidth.toFixed(2), h: mapHeight.toFixed(2)},
+                origin: {x: map2D.origin_x.toFixed(3), y: map2D.origin_y.toFixed(3)},
+                resolution: map2D.resolution.toFixed(4),
+                scale: scale.toFixed(3),
+                offset: {x: offsetX.toFixed(1), y: offsetY.toFixed(1)},
+                canvas: {w: w, h: h}
+            });
+            
+            // Create ImageData for faster rendering
+            const imageData = ctx.createImageData(w, h);
+            const data = imageData.data;
+            
+            // Fill with background
+            for (let i = 0; i < data.length; i += 4) {
+                data[i] = 26; data[i+1] = 26; data[i+2] = 26; data[i+3] = 255;
+            }
+            
+            // Draw map cells
+            // Backend already flipped Y (bottom-to-top -> top-to-bottom)
+            // So data[0] is top-left, data[width-1] is top-right
+            // We can draw directly without Y-flip
+            let drawnCells = 0;
+            
+            for (let gridY = 0; gridY < map2D.height; gridY++) {
+                for (let gridX = 0; gridX < map2D.width; gridX++) {
+                    const idx = gridY * map2D.width + gridX;
+                    const value = map2D.data[idx];
+                    
+                    // Determine color
+                    let r, g, b;
+                    if (value < 0) {
+                        continue; // Skip unknown
+                    } else if (value > 65) {
+                        r = g = b = 50; // Occupied: dark
+                        drawnCells++;
+                    } else if (value < 35) {
+                        r = g = b = 240; // Free: light
+                        drawnCells++;
+                    } else {
+                        r = g = b = 150; // Uncertain
+                        drawnCells++;
+                    }
+                    
+                    // Direct mapping: gridY=0 is canvas top, gridY=height-1 is canvas bottom
+                    const px = Math.floor(offsetX + gridX * map2D.resolution * scale);
+                    const py = Math.floor(offsetY + gridY * map2D.resolution * scale);
+                    
+                    if (px >= 0 && px < w && py >= 0 && py < h) {
+                        const pidx = (py * w + px) * 4;
+                        data[pidx] = r;
+                        data[pidx + 1] = g;
+                        data[pidx + 2] = b;
+                        data[pidx + 3] = 255;
+                    }
                 }
             }
-        };
+            
+            ctx.putImageData(imageData, 0, 0);
+            console.log(`Drew ${drawnCells} cells`);
+            
+            // Draw robot position
+            drawRobotOnMinimap(offsetX, offsetY, scale);
+            
+            // Draw info text
+            ctx.fillStyle = '#3498db';
+            ctx.font = '10px monospace';
+            ctx.fillText(`${map2D.width}x${map2D.height} @ ${(map2D.resolution*1000).toFixed(0)}mm`, 5, h - 5);
+        }
+        
+        function drawRobotOnMinimap(offsetX, offsetY, scale) {
+            const ctx = minimapCtx;
+            
+            // Backend already flipped map data, so we need to match index.html's logic
+            // which assumes backend-flipped data
+            // Index uses: pixelY = (height - (y - origin_y) / resolution)
+            // This is correct for backend-flipped data
+            const pixelX = (robotPose2D.x - map2D.origin_x) / map2D.resolution;
+            const pixelY = (map2D.height - (robotPose2D.y - map2D.origin_y) / map2D.resolution);
+            
+            // Apply scale and offset for minimap
+            const robotX = offsetX + pixelX * map2D.resolution * scale;
+            const robotY = offsetY + pixelY * map2D.resolution * scale;
+            
+            console.log('[MANUAL_RELOC] Robot:', {
+                world: {x: robotPose2D.x.toFixed(3), y: robotPose2D.y.toFixed(3)},
+                origin: {x: map2D.origin_x.toFixed(3), y: map2D.origin_y.toFixed(3)},
+                pixel: {x: pixelX.toFixed(1), y: pixelY.toFixed(1)},
+                canvas: {x: robotX.toFixed(1), y: robotY.toFixed(1)},
+                note: 'Using index.html formula (backend pre-flipped data)'
+            });
+            
+            // Draw robot as a triangle (arrow) - same as index.html
+            const size = 10;
+            ctx.save();
+            ctx.translate(robotX, robotY);
+            ctx.rotate(-robotPose2D.yaw);
+            
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';  // Red (same as index.html)
+            ctx.strokeStyle = 'rgba(185, 28, 28, 1)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(size, 0);      // Front
+            ctx.lineTo(-size/2, -size/2);  // Back left
+            ctx.lineTo(-size/2, size/2);   // Back right
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+        
+        function update2DRobotPose() {
+            // Update robot pose from currentPose
+            robotPose2D.x = currentPose.x;
+            robotPose2D.y = currentPose.y;
+            robotPose2D.yaw = currentPose.yaw;
+            
+            // Redraw minimap
+            if (map2D) {
+                draw2DMinimap();
+            } else {
+                drawFallbackMinimap();
+            }
+        }
+        
+        async function loadMap() {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = "Loading Map...";
+            try {
+                const response = await fetch('/api/manual_reloc/map');
+                if (!response.ok) throw new Error("Map not ready");
+                
+                const buffer = await response.arrayBuffer();
+                const float32View = new Float32Array(buffer);
+                
+                console.log(`Map loaded: ${float32View.length/3} points`);
+                updateMapCloud(float32View);
+                mapLoaded = true;
+                statusEl.textContent = "Map Loaded. Waiting for snapshot.";
+                statusEl.style.color = "#2ecc71";
+            } catch (e) {
+                console.error(e);
+                statusEl.textContent = "Map Load Failed (will retry)";
+                statusEl.style.color = "#e74c3c";
+                setTimeout(loadMap, 2000);
+            }
+        }
+        
+        async function captureScan() {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = "Capturing Snapshot...";
+            statusEl.style.color = "#f1c40f";
+            
+            try {
+                const response = await fetch('/api/manual_reloc/capture');
+                if (!response.ok) throw new Error("Capture failed");
+                
+                const data = await response.json();
+                // data: { scan: "base64", odom: {...}, pose: {...} }
+                
+                // 1. Decode Scan
+                const scanBuffer = base64ToArrayBuffer(data.scan);
+                const float32View = new Float32Array(scanBuffer);
+                updateScanCloud(float32View);
+                
+                // 2. Update State
+                refOdom = data.odom;
+                
+                // Use map_pose as initial guess if available, otherwise keep current
+                if (data.pose && (data.pose.x !== 0 || data.pose.y !== 0)) {
+                    currentPose = data.pose;
+                } else if (data.map_pose) {
+                    // Fallback to map_pose (from backend TF lookup)
+                    currentPose = data.map_pose;
+                }
+                
+                console.log('Captured pose:', currentPose, 'refOdom:', refOdom);
+                
+                // 3. Update 2D robot pose immediately
+                robotPose2D.x = currentPose.x;
+                robotPose2D.y = currentPose.y;
+                robotPose2D.yaw = currentPose.yaw;
+                
+                // 4. Update UI
+                updateUIInputs(currentPose);
+                updateScanTransform(); // Apply pose to scan (this will also update 2D map)
+                
+                statusEl.textContent = "Snapshot Captured. Adjust Pose now.";
+                statusEl.style.color = "#3498db";
+                console.log("Captured snapshot. Ref Odom:", refOdom);
+                
+            } catch (e) {
+                console.error(e);
+                statusEl.textContent = "Capture Failed";
+                statusEl.style.color = "#e74c3c";
+                alert("Failed to capture snapshot. Is robot running?");
+            }
+        }
+        
+        async function confirmPose() {
+            if (!refOdom) {
+                alert("Please capture a snapshot first!");
+                return;
+            }
+            
+            if (!confirm("Confirm this pose? The system will calculate relative motion since snapshot.")) return;
+            
+            try {
+                const response = await fetch('/api/manual_reloc/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pose: currentPose,
+                        ref_odom: refOdom
+                    })
+                });
+                
+                if (response.ok) {
+                    alert("Pose published successfully!");
+                } else {
+                    alert("Failed to publish pose.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error confirming pose.");
+            }
+        }
+
+        // --- 3D Visualization Updates ---
         
         function updateMapCloud(data) {
             if (mapPoints) scene.remove(mapPoints);
-            
             const geometry = new THREE.BufferGeometry();
-            // Three.js expects Float32BufferAttribute
             geometry.setAttribute('position', new THREE.BufferAttribute(data, 3));
             
-            // Compute bounding box to center camera
+            // Center camera on map
             geometry.computeBoundingBox();
             const box = geometry.boundingBox;
             const center = new THREE.Vector3();
@@ -196,7 +520,6 @@
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
             
-            // Adjust camera to view entire map
             camera.position.set(center.x, center.y + maxDim * 0.5, center.z + maxDim * 0.5);
             camera.lookAt(center);
             controls.target.copy(center);
@@ -204,23 +527,29 @@
             
             const material = new THREE.PointsMaterial({ 
                 color: 0x888888, 
-                size: Math.max(0.1, maxDim / 500), // Adaptive point size
+                size: Math.max(0.1, maxDim / 500), 
                 sizeAttenuation: true
             }); 
             mapPoints = new THREE.Points(geometry, material);
             scene.add(mapPoints);
-            
-            console.log(`Map loaded: ${data.length/3} points, center:`, center, "size:", size);
-            statusEl.textContent = `Map Loaded: ${Math.floor(data.length/3)} points`;
         }
         
         function updateScanCloud(data) {
-            if (scanPoints) scene.remove(scanPoints);
+            console.log("updateScanCloud called, data length:", data.length, "points:", data.length/3);
             
+            // Clear previous
+            if (scanGroup) scene.remove(scanGroup);
+            
+            // Create Group
+            scanGroup = new THREE.Group();
+            scene.add(scanGroup);
+            
+            // 1. Create Scan Points
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.BufferAttribute(data, 3));
+            console.log("Scan geometry created, point count:", geometry.attributes.position.count);
             
-            // Use adaptive size based on map if available
+            // Determine point size
             let pointSize = 0.3;
             if (mapPoints && mapPoints.geometry.boundingBox) {
                 const mapSize = mapPoints.geometry.boundingBox.getSize(new THREE.Vector3());
@@ -234,109 +563,211 @@
                 sizeAttenuation: true 
             });
             scanPoints = new THREE.Points(geometry, material);
-            scene.add(scanPoints);
+            scanPoints.frustumCulled = false;
+            scanGroup.add(scanPoints); // Add points to group
+            console.log("scanPoints added to scanGroup, visible:", scanPoints.visible);
             
-            console.log(`Scan updated: ${data.length/3} points`);
-        }
-        
-        function updateUI(pose) {
-            // pose is already the pose object (not wrapped)
-            if (!pose) return;
+            // 2. Create Robot Marker (Axes + Arrow)
+            robotMarker = new THREE.Group();
             
-            // Only update inputs if they are not focused to avoid fighting user
-            if (document.activeElement.tagName !== 'INPUT') {
-                if (pose.x !== undefined) document.getElementById('val-x').value = pose.x.toFixed(2);
-                if (pose.y !== undefined) document.getElementById('val-y').value = pose.y.toFixed(2);
-                if (pose.z !== undefined) document.getElementById('val-z').value = pose.z.toFixed(2);
-                if (pose.roll !== undefined) document.getElementById('val-roll').value = pose.roll.toFixed(2);
-                if (pose.pitch !== undefined) document.getElementById('val-pitch').value = pose.pitch.toFixed(2);
-                if (pose.yaw !== undefined) document.getElementById('val-yaw').value = pose.yaw.toFixed(2);
+            // Axes: Red(X), Green(Y), Blue(Z)
+            // Size: 2.0 meters
+            const axesHelper = new THREE.AxesHelper(2.0);
+            robotMarker.add(axesHelper);
+            
+            // Forward Arrow (Red, X-axis)
+            const arrowDir = new THREE.Vector3(1, 0, 0); 
+            const arrowOrigin = new THREE.Vector3(0, 0, 0);
+            const arrowLength = 3.0;
+            const arrowColor = 0xffff00;
+            const arrowHeadLength = 0.5;
+            const arrowHeadWidth = 0.3;
+            const arrowHelper = new THREE.ArrowHelper(arrowDir, arrowOrigin, arrowLength, arrowColor, arrowHeadLength, arrowHeadWidth);
+            robotMarker.add(arrowHelper);
+            
+            scanGroup.add(robotMarker);
+            
+            console.log("scanGroup created, children count:", scanGroup.children.length);
+            console.log("scanGroup position before transform:", scanGroup.position);
+            
+            updateScanTransform();
+            
+            console.log("scanGroup position after transform:", scanGroup.position);
+            
+            // Auto-focus camera on scan
+            if (scanPoints && scanPoints.geometry) {
+                scanPoints.geometry.computeBoundingSphere();
+                const sphere = scanPoints.geometry.boundingSphere;
+                if (sphere) {
+                    console.log("Scan bounding sphere center:", sphere.center, "radius:", sphere.radius);
+                    // Move camera to look at scan
+                    const distance = sphere.radius * 3;
+                    camera.position.set(
+                        scanGroup.position.x,
+                        scanGroup.position.y + distance * 0.5,
+                        scanGroup.position.z + distance * 0.5
+                    );
+                    camera.lookAt(scanGroup.position);
+                    controls.target.copy(scanGroup.position);
+                    controls.update();
+                }
             }
         }
         
-        function sendMove(axis, value) {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "move", axis: axis, value: value }));
-            }
+        function updateScanTransform() {
+            if (!scanGroup) return;
+            
+            // Create ROS Pose Matrix (M_ros) from UI inputs
+            const rosPos = new THREE.Vector3(currentPose.x, currentPose.y, currentPose.z);
+            
+            // Create Quaternion from Euler (ROS Order: ZYX - yaw, pitch, roll)
+            // But wait, Three.js setFromAxisAngle + multiply is safest
+            const qRoll = new THREE.Quaternion(); qRoll.setFromAxisAngle(new THREE.Vector3(1,0,0), currentPose.roll);
+            const qPitch = new THREE.Quaternion(); qPitch.setFromAxisAngle(new THREE.Vector3(0,1,0), currentPose.pitch);
+            const qYaw = new THREE.Quaternion(); qYaw.setFromAxisAngle(new THREE.Vector3(0,0,1), currentPose.yaw);
+            
+            // Combine: Yaw * Pitch * Roll (Standard ROS rotation order)
+            const qRos = new THREE.Quaternion().copy(qYaw).multiply(qPitch).multiply(qRoll);
+            
+            // Construct M_ros (4x4 Matrix in ROS coordinates)
+            const mRos = new THREE.Matrix4();
+            mRos.compose(rosPos, qRos, new THREE.Vector3(1,1,1));
+            
+            // Construct Coordinate Transform Matrix T (ROS -> Three)
+            // X -> X, Y -> Z, Z -> -Y
+            const T = new THREE.Matrix4().set(
+                 1,  0,  0,  0,
+                 0,  0,  1,  0,
+                 0, -1,  0,  0,
+                 0,  0,  0,  1
+            );
+            
+            // Calculate T_inv
+            const T_inv = new THREE.Matrix4().copy(T).invert();
+            
+            // M_final = T * M_ros * T_inv
+            const mFinal = new THREE.Matrix4();
+            mFinal.multiplyMatrices(T, mRos);
+            mFinal.multiply(T_inv);
+            
+            // Apply to object
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            
+            mFinal.decompose(pos, quat, scale);
+            
+            scanGroup.position.copy(pos);
+            scanGroup.quaternion.copy(quat);
+            scanGroup.scale.copy(scale);
+            scanGroup.updateMatrix();
+            
+            // Update 2D minimap
+            update2DRobotPose();
         }
         
-        function confirmPose() {
-            if (confirm("Are you sure you want to overwrite the system's initial pose?")) {
-                ws.send(JSON.stringify({ type: "confirm" }));
-                alert("Pose published to system!");
+        // --- Utils ---
+        
+        function base64ToArrayBuffer(base64) {
+            var binary_string = window.atob(base64);
+            var len = binary_string.length;
+            var bytes = new Uint8Array(len);
+            for (var i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
             }
+            return bytes.buffer;
         }
         
-        function resetView() {
-            controls.reset();
-            camera.position.set(0, 0, 50);
-            controls.update();
+        function updateUIInputs(pose) {
+            document.getElementById('val-x').value = pose.x.toFixed(2);
+            document.getElementById('val-y').value = pose.y.toFixed(2);
+            document.getElementById('val-z').value = pose.z.toFixed(2);
+            document.getElementById('val-roll').value = pose.roll.toFixed(2);
+            document.getElementById('val-pitch').value = pose.pitch.toFixed(2);
+            document.getElementById('val-yaw').value = pose.yaw.toFixed(2);
         }
 
-        // Keyboard Controls
+        function handleMove(axis, value) {
+            // Update currentPose state
+            if (axis === 'x' || axis === 'y' || axis === 'z') {
+                currentPose[axis] += value;
+            } else if (axis === 'roll' || axis === 'pitch' || axis === 'yaw') {
+                currentPose[axis] += value;
+            }
+            
+            // Update UI and View
+            updateUIInputs(currentPose);
+            updateScanTransform();
+        }
+
+        // --- Event Listeners ---
+        
+        // Manual Input Changes
+        ['val-x', 'val-y', 'val-z', 'val-roll', 'val-pitch', 'val-yaw'].forEach(id => {
+            document.getElementById(id).addEventListener('change', (e) => {
+                const key = id.replace('val-', '');
+                currentPose[key] = parseFloat(e.target.value);
+                updateScanTransform();
+            });
+        });
+        
+        // Keyboard
         document.addEventListener('keydown', (e) => {
-            // Ignore if typing in input
             if (e.target.tagName === 'INPUT') return;
-            
             const step = parseFloat(document.getElementById('step-size').value);
-            const rotStep = step * 0.2; // Radians usually smaller
-            
-            // Coordinate system note:
-            // In visualizer: Up is Z? 
-            // Usually Three.js Y is up. But our map data is usually Z up.
-            // If map data is Z up, then Three.js works fine if we treat Y as back/forward?
-            // ROS: X forward, Y left, Z up.
-            // Three.js Default: Y up, Z toward viewer, X right.
-            // Our visualization is passing raw XYZ from ROS.
-            // So displayed points: X is Right in Three.js? 
-            // Actually: 
-            // ROS (x,y,z) -> Three (x,y,z) means:
-            // X (ROS Forward) -> X (Three Right)
-            // Y (ROS Left) -> Y (Three Up)
-            // Z (ROS Up) -> Z (Three Forward/Back)
-            // This is rotated.
-            
-            // However, usually we rotate points in JS to match Z-up visualization.
-            // Let's assume user adjusts based on visual feedback.
-            // ROS X axis (Forward) usually maps to 'W' key.
+            const rotStep = step * 0.2;
             
             switch(e.key.toLowerCase()) {
                 case 'w':
-                    if (e.shiftKey) sendMove('z', step);
-                    else sendMove('x', step);
+                    if (e.shiftKey) handleMove('z', step);
+                    else handleMove('x', step);
                     break;
                 case 's':
-                    if (e.shiftKey) sendMove('z', -step);
-                    else sendMove('x', -step);
+                    if (e.shiftKey) handleMove('z', -step);
+                    else handleMove('x', -step);
                     break;
-                case 'a':
-                    sendMove('y', step);
-                    break;
-                case 'd':
-                    sendMove('y', -step);
-                    break;
-                case 'q':
-                    sendMove('yaw', rotStep);
-                    break;
-                case 'e':
-                    sendMove('yaw', -rotStep);
-                    break;
-                case 'r':
-                    sendMove('roll', rotStep);
-                    break;
-                case 'f':
-                    sendMove('roll', -rotStep);
-                    break;
-                case 't':
-                    sendMove('pitch', rotStep);
-                    break;
-                case 'g':
-                    sendMove('pitch', -rotStep);
-                    break;
+                case 'a': handleMove('y', step); break;
+                case 'd': handleMove('y', -step); break;
+                case 'q': handleMove('yaw', rotStep); break;
+                case 'e': handleMove('yaw', -rotStep); break;
+                case 'r': handleMove('roll', rotStep); break;
+                case 'f': handleMove('roll', -rotStep); break;
+                case 't': handleMove('pitch', rotStep); break;
+                case 'g': handleMove('pitch', -rotStep); break;
             }
         });
         
-        // Animation Loop
+        // Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function resetView() {
+            if (mapPoints && mapPoints.geometry.boundingBox) {
+                const box = mapPoints.geometry.boundingBox;
+                const center = new THREE.Vector3();
+                box.getCenter(center);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                
+                camera.position.set(center.x, center.y + maxDim * 0.5, center.z + maxDim * 0.5);
+                camera.lookAt(center);
+                controls.target.copy(center);
+                controls.update();
+                console.log("Camera reset to map center:", center);
+            } else {
+                // Fallback: reset to origin
+                camera.position.set(0, 50, 50);
+                camera.lookAt(0, 0, 0);
+                controls.target.set(0, 0, 0);
+                controls.update();
+                console.log("Camera reset to origin (no map loaded)");
+            }
+        }
+
+        // Animation loop
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
@@ -344,31 +775,10 @@
         }
         animate();
         
-        // Resize Handler
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-        
-        // Input Change Handler (Manual Entry)
-        ['val-x', 'val-y', 'val-z', 'val-roll', 'val-pitch', 'val-yaw'].forEach(id => {
-            document.getElementById(id).addEventListener('change', (e) => {
-                const pose = {
-                    x: document.getElementById('val-x').value,
-                    y: document.getElementById('val-y').value,
-                    z: document.getElementById('val-z').value,
-                    roll: document.getElementById('val-roll').value,
-                    pitch: document.getElementById('val-pitch').value,
-                    yaw: document.getElementById('val-yaw').value,
-                };
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: "set_pose", data: pose }));
-                }
-            });
-        });
+        // Init
+        loadMap();
+        load2DMap();
 
     </script>
 </body>
 </html>
-

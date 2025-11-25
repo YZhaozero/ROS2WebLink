@@ -369,52 +369,92 @@ class MappingController:
             self._processes.clear()
             self._state = "IDLE"
             print("All mapping processes terminated.")
+            
+            # Handle rosbag cleanup based on final status
+            if self._save_status == "success":
+                # If success, apply normal cleanup policy (delete/archive/keep)
+                self._cleanup_rosbag()
+            elif self._save_status == "failed":
+                # If failed, FORCE KEEP rosbag for debugging, unless policy is archive
+                if self.rosbag_cleanup_policy == "archive":
+                    print("⚠️ Map save failed, but archiving rosbag as configured.")
+                    self._cleanup_rosbag()
+                else:
+                    print(f"⚠️ Map save failed. RETAINING rosbag for debugging: {self._rosbag_path}")
+                    # Do NOT call _cleanup_rosbag() here to prevent deletion
     
     def _save_pcd_map(self, map_name: str) -> Optional[Path]:
-        """Save 3D point cloud map for GICP localizer."""
+        """Save 3D point cloud map for GICP localizer using DLIO service."""
         try:
             pcd_dir = self.workdir / "src/tron_slam/localizer/PCD"
             pcd_dir.mkdir(parents=True, exist_ok=True)
             pcd_file = pcd_dir / f"{map_name}.pcd"
             
-            print(f"Saving 3D PCD map to {pcd_file}...")
+            print(f"Saving 3D PCD map to {pcd_file} via DLIO service...")
             
-            # Use custom Python script to save point cloud
-            save_script = self.workdir / "tools/save_pointcloud_to_pcd.py"
+            # Call DLIO save_pcd service
+            # The service saves 'dlio_map.pcd' in the specified directory
             ros_domain_id = os.getenv("ROS_DOMAIN_ID", "0")
+            
+            # Using leaf_size 0.05 for high quality map
+            service_args = f"{{leaf_size: 0.05, save_path: '{str(pcd_dir)}'}}"
+            
             bash_cmd = [
                 "bash", "-c",
                 f"export ROS_DOMAIN_ID={ros_domain_id} && "
                 f"source /opt/ros/humble/setup.bash && "
                 f"source {self.workdir}/install/setup.bash && "
-                f"python3 {save_script} /dlio/odom_node/pointcloud/deskewed {pcd_file} 10"
+                f"ros2 service call /save_pcd direct_lidar_inertial_odometry/srv/SavePCD \"{service_args}\""
             ]
             
-            # Run with 20 second timeout
+            # Run with 30 second timeout
             result = subprocess.run(
                 bash_cmd,
                 capture_output=True,
                 text=True,
-                timeout=20,
+                timeout=30,
                 cwd=self.workdir
             )
             
-            if result.returncode == 0 and pcd_file.exists():
+            print(f"Service call output: {result.stdout}")
+            
+            # Check for the generated file (default name is dlio_map.pcd)
+            generated_file = pcd_dir / "dlio_map.pcd"
+            
+            if result.returncode == 0 and generated_file.exists():
+                # Rename to requested map name
+                if generated_file != pcd_file:
+                    if pcd_file.exists():
+                        pcd_file.unlink()
+                    generated_file.rename(pcd_file)
+                
                 file_size = pcd_file.stat().st_size
                 print(f"✅ 3D PCD map saved: {pcd_file} ({file_size / 1024:.1f} KB)")
                 self._update_localizer_config(pcd_file)
                 return pcd_file
             else:
-                print(f"⚠️ PCD save failed or file not created")
-                print(f"Command output: {result.stdout}")
+                print(f"⚠️ PCD save failed. Service output: {result.stdout}")
                 print(f"Command error: {result.stderr}")
+                
+                # Fallback: try using topic subscription if service fails
+                print("🔄 Trying fallback: saving from topic dlio/map...")
+                save_script = self.workdir / "tools/save_pointcloud_to_pcd.py"
+                bash_cmd_fallback = [
+                    "bash", "-c",
+                    f"export ROS_DOMAIN_ID={ros_domain_id} && "
+                    f"source /opt/ros/humble/setup.bash && "
+                    f"source {self.workdir}/install/setup.bash && "
+                    f"python3 {save_script} dlio/map {pcd_file} 20"
+                ]
+                subprocess.run(bash_cmd_fallback, capture_output=True, timeout=25)
+                
+                if pcd_file.exists():
+                    print(f"✅ Fallback saved: {pcd_file}")
+                    self._update_localizer_config(pcd_file)
+                    return pcd_file
+
         except subprocess.TimeoutExpired:
-            print(f"⚠️ PCD save timeout after 20 seconds")
-            if pcd_file.exists():
-                file_size = pcd_file.stat().st_size
-                print(f"✅ 3D PCD map saved (timeout): {pcd_file} ({file_size / 1024:.1f} KB)")
-                self._update_localizer_config(pcd_file)
-                return pcd_file
+            print(f"⚠️ PCD save timeout")
         except Exception as e:
             print(f"❌ PCD save exception: {e}")
         
@@ -531,8 +571,7 @@ class MappingController:
             import traceback
             traceback.print_exc()
             return False
-        finally:
-            self._cleanup_rosbag()
+
 
     def _extract_rosbag_to_kitti(self, rosbag_path: Path, output_dir: Path) -> bool:
         """Run rosbag2_to_kitti tool."""

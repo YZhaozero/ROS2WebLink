@@ -3,6 +3,9 @@
 import asyncio
 import logging
 import time
+import shutil
+from typing import List
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response
@@ -127,6 +130,23 @@ class SetNavGoalRequest(BaseModel):
     goal_id: int = Field(default=0, description="Goal ID for tracking")
     xy_tolerance: float = Field(default=0.1, description="Position tolerance in meters")
     yaw_tolerance: float = Field(default=0.05, description="Orientation tolerance in radians")
+
+
+class StorageInfo(BaseModel):
+    total_gb: float
+    used_gb: float
+    free_gb: float
+    percent: float
+    warning: bool
+
+
+class RosbagInfo(BaseModel):
+    name: str
+    path: str
+    size_mb: float
+    modified_time: str
+    is_active: bool
+    is_failed_residue: bool
 
 
 def create_app() -> FastAPI:
@@ -1124,6 +1144,101 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"Failed to read localizer logs: {e}")
             return {"logs": [f"读取日志失败: {str(e)}"]}
+
+    @app.get("/api/system/storage", response_model=StorageInfo)
+    async def get_storage_info():
+        """Get disk usage information for the workspace."""
+        try:
+            total, used, free = shutil.disk_usage(str(_mapping_controller.workdir))
+            gb = 1024 ** 3
+            percent = (used / total) * 100
+            return {
+                "total_gb": round(total / gb, 2),
+                "used_gb": round(used / gb, 2),
+                "free_gb": round(free / gb, 2),
+                "percent": round(percent, 1),
+                "warning": percent > 90
+            }
+        except Exception as e:
+            logger.error(f"Failed to get storage info: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/api/rosbags", response_model=List[RosbagInfo])
+    async def list_rosbags():
+        """List all rosbags in the workspace."""
+        rosbag_dir = _mapping_controller.workdir / "rosbags"
+        if not rosbag_dir.exists():
+            return []
+        
+        bags = []
+        try:
+            for p in rosbag_dir.iterdir():
+                if p.is_dir() and p.name.startswith("mapping_"):
+                    size_bytes = sum(f.stat().st_size for f in p.rglob('*') if f.is_file())
+                    mtime = p.stat().st_mtime
+                    # Check if active
+                    is_active = str(p) == str(_mapping_controller._rosbag_path) if _mapping_controller._rosbag_path else False
+                    
+                    # Consider residue if not active
+                    is_residue = not is_active
+                    
+                    bags.append({
+                        "name": p.name,
+                        "path": str(p),
+                        "size_mb": round(size_bytes / (1024 * 1024), 2),
+                        "modified_time": datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                        "is_active": is_active,
+                        "is_failed_residue": is_residue
+                    })
+            
+            bags.sort(key=lambda x: x['modified_time'], reverse=True)
+            return bags
+        except Exception as e:
+            logger.error(f"Failed to list rosbags: {e}")
+            return []
+
+    @app.delete("/api/rosbags/{bag_name}")
+    async def delete_rosbag(bag_name: str):
+        """Delete a specific rosbag."""
+        rosbag_dir = _mapping_controller.workdir / "rosbags"
+        bag_path = rosbag_dir / bag_name
+        
+        if not bag_path.exists():
+            raise HTTPException(status_code=404, detail="Rosbag not found")
+            
+        if _mapping_controller._rosbag_path and str(bag_path) == str(_mapping_controller._rosbag_path):
+             raise HTTPException(status_code=400, detail="Cannot delete active rosbag")
+             
+        try:
+            shutil.rmtree(bag_path)
+            return {"status": "success", "message": f"Deleted {bag_name}"}
+        except Exception as e:
+             logger.error(f"Failed to delete rosbag {bag_name}: {e}")
+             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/api/rosbags/cleanup")
+    async def cleanup_old_rosbags(days: int = 7):
+        """Cleanup rosbags older than N days."""
+        rosbag_dir = _mapping_controller.workdir / "rosbags"
+        if not rosbag_dir.exists():
+             return {"status": "success", "deleted_count": 0}
+             
+        count = 0
+        now = time.time()
+        try:
+            for p in rosbag_dir.iterdir():
+                if p.is_dir() and p.name.startswith("mapping_"):
+                    mtime = p.stat().st_mtime
+                    if _mapping_controller._rosbag_path and str(p) == str(_mapping_controller._rosbag_path):
+                        continue
+                        
+                    if (now - mtime) > (days * 86400):
+                        shutil.rmtree(p)
+                        count += 1
+            return {"status": "success", "deleted_count": count}
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/api/robot/matching_clouds")
     async def get_matching_clouds():

@@ -94,9 +94,73 @@ const activeKeys = new Set();
 let lastTwist = { x: 0, y: 0, z: 0 };
 let sendingTwist = false;
 
-function notify(message) {
+// Notification System
+function showNotification(message, type = 'info', duration = 5000) {
+  if (!message) return;
+  
+  let container = document.getElementById('notification-container');
+  if (!container) {
+    console.error('Notification container not found! Creating it...');
+    // Fallback: try to create it
+    container = document.createElement('div');
+    container.id = 'notification-container';
+    container.className = 'notification-container';
+    document.body.insertBefore(container, document.body.firstChild);
+  }
+  
+  // Auto-detect type from message content
+  if (!type || type === 'info') {
+    const msgLower = message.toLowerCase();
+    if (msgLower.includes('错误') || msgLower.includes('失败') || msgLower.includes('error') || msgLower.includes('failed')) {
+      type = 'error';
+    } else if (msgLower.includes('成功') || msgLower.includes('完成') || msgLower.includes('success') || msgLower.includes('完成')) {
+      type = 'success';
+    } else if (msgLower.includes('警告') || msgLower.includes('注意') || msgLower.includes('warning') || 
+               msgLower.includes('请先') || msgLower.includes('需要') || msgLower.includes('必须')) {
+      type = 'warning';
+    }
+  }
+  
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = `notification ${type}`;
+  
+  const textSpan = document.createElement('span');
+  textSpan.textContent = message;
+  notification.appendChild(textSpan);
+  
+  // Add close button
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'background: transparent; border: none; color: inherit; font-size: 20px; cursor: pointer; padding: 0; margin-left: 15px; line-height: 1; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;';
+  closeBtn.addEventListener('click', () => {
+    notification.style.animation = 'fadeOut 0.3s ease-out forwards';
+    setTimeout(() => notification.remove(), 300);
+  });
+  notification.appendChild(closeBtn);
+  
+  container.appendChild(notification);
+  
+  // Debug: log notification creation
+  console.log(`[Notification] Showing ${type} notification: "${message}"`);
+  
+  // Auto-remove after duration (longer for warnings/errors)
+  const autoRemoveDuration = (type === 'error' || type === 'warning') ? duration * 2 : duration;
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.style.animation = 'fadeOut 0.3s ease-out forwards';
+      setTimeout(() => notification.remove(), 300);
+    }
+  }, autoRemoveDuration);
+}
+
+function notify(message, type) {
   if (message) {
+    // Update status bar (existing behavior)
     statusIndicator.textContent = message;
+    
+    // Show top notification (new behavior)
+    showNotification(message, type);
   }
 }
 
@@ -189,11 +253,15 @@ function drawRobot() {
   // Flip Y: ROS2 Y increases upward, Canvas Y increases downward
   const pixelY = (meta.height - (pos.y - originY) / meta.resolution);
   
-  // Debug: log first draw only
-  if (!window._robotDrawn) {
-    console.log('drawRobot (first):', {worldX: pos.x, worldY: pos.y, pixelX, pixelY, canvasSize: {w: mapCanvas.width, h: mapCanvas.height}});
-    window._robotDrawn = true;
-  }
+  // Debug: log every draw for comparison with manual_reloc
+  console.log('[INDEX] drawRobot:', {
+    world: {x: pos.x.toFixed(3), y: pos.y.toFixed(3)},
+    origin: {x: originX.toFixed(3), y: originY.toFixed(3)},
+    mapSize: {w: meta.width, h: meta.height},
+    resolution: meta.resolution.toFixed(4),
+    pixel: {x: pixelX.toFixed(1), y: pixelY.toFixed(1)},
+    canvas: {w: mapCanvas.width, h: mapCanvas.height}
+  });
   
   ctx.save();
   ctx.translate(pixelX, pixelY);
@@ -1480,7 +1548,7 @@ function initEventBindings() {
     if (mapName) {
       window.location.href = `/static/map_editor.html?map=${encodeURIComponent(mapName)}`;
     } else {
-      alert('请先选择一个地图！');
+      notify('请先选择一个地图！', 'warning');
     }
   });
   buttons.startMapping?.addEventListener('click', startMapping);
@@ -1944,6 +2012,20 @@ updateWaypointIndicator();
 initEventBindings();
 drawPlaceholder();
 
+// Verify notification system on page load
+(function() {
+  const container = document.getElementById('notification-container');
+  if (!container) {
+    console.error('❌ Notification container missing! Creating fallback...');
+    const fallback = document.createElement('div');
+    fallback.id = 'notification-container';
+    fallback.className = 'notification-container';
+    document.body.insertBefore(fallback, document.body.firstChild);
+  } else {
+    console.log('✅ Notification system ready');
+  }
+})();
+
 probeBackend();
 fetchRobotStatus();
 fetchMappingStatus();
@@ -1973,3 +2055,100 @@ setInterval(() => {
   }
 }, 5000);
 
+
+// ===== Storage Management =====
+const storage = {
+  diskText: document.getElementById('disk-usage-text'),
+  diskBar: document.getElementById('disk-usage-bar'),
+  bagList: document.getElementById('rosbag-list'),
+  btnCleanup: document.getElementById('btn-cleanup-rosbags')
+};
+
+async function updateStorageInfo() {
+  if (!storage.diskText) return;
+  try {
+    const res = await fetch('/api/system/storage');
+    const data = await res.json();
+    storage.diskText.textContent = `${data.used_gb}GB / ${data.total_gb}GB (${data.percent}%)`;
+    storage.diskBar.style.width = `${data.percent}%`;
+    
+    if (data.percent > 90) {
+       storage.diskBar.style.backgroundColor = '#e74c3c'; // Red
+       // Throttle notification? For now simple
+       // notify("⚠️ 磁盘空间不足！请清理旧数据");
+    } else if (data.percent > 75) {
+       storage.diskBar.style.backgroundColor = '#f39c12'; // Orange
+    } else {
+       storage.diskBar.style.backgroundColor = '#2ecc71'; // Green
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function updateRosbagList() {
+  if (!storage.bagList) return;
+  try {
+    const res = await fetch('/api/rosbags');
+    const bags = await res.json();
+    
+    if (bags.length === 0) {
+       storage.bagList.innerHTML = '<div style="color: #bdc3c7; text-align: center; padding: 10px;">无残留录包</div>';
+       return;
+    }
+    
+    storage.bagList.innerHTML = bags.map(bag => `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px; border-bottom: 1px solid #34495e;">
+        <div>
+           <div style="color: #ecf0f1;">${bag.name}</div>
+           <div style="color: #95a5a6; font-size: 0.9em;">${bag.size_mb} MB | ${bag.modified_time}</div>
+        </div>
+        ${!bag.is_active ? `<button onclick="deleteRosbag('${bag.name}')" style="background: #e74c3c; border: none; color: white; padding: 2px 6px; border-radius: 3px; cursor: pointer;">🗑️</button>` : '<span style="color: #2ecc71; font-size: 0.8em;">[录制中]</span>'}
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+window.deleteRosbag = async (name) => {
+    if(!confirm(`确定要删除录包 ${name} 吗？`)) return;
+    try {
+        const res = await fetch(`/api/rosbags/${name}`, { method: 'DELETE' });
+        if(res.ok) {
+            updateRosbagList();
+            updateStorageInfo();
+            notify(`已删除 ${name}`);
+        } else {
+            const err = await res.json();
+            notify(`删除失败: ${err.detail}`);
+        }
+    } catch(e) {
+        notify(`错误: ${e}`);
+    }
+};
+
+if (storage.btnCleanup) {
+    storage.btnCleanup.addEventListener('click', async () => {
+        if(!confirm("确定要清理所有超过 7 天的旧录包吗？")) return;
+        try {
+            const res = await fetch('/api/rosbags/cleanup?days=7', { method: 'POST' });
+            const data = await res.json();
+            notify(`清理完成，删除了 ${data.deleted_count} 个录包`);
+            updateRosbagList();
+            updateStorageInfo();
+        } catch(e) {
+            notify(`清理错误: ${e}`);
+        }
+    });
+}
+
+// Initial load
+updateStorageInfo();
+updateRosbagList();
+
+// Periodic update
+setInterval(() => {
+    updateStorageInfo();
+    updateRosbagList();
+}, 10000);
