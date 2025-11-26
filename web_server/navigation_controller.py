@@ -169,16 +169,40 @@ class NavigationController:
                     print(f"⚠️ Failed to update {config_path}: {e}")
             else:
                 print(f"⚠️ Localizer config not found: {config_path}")
-    
+
+    def _get_current_nodes(self) -> set:
+        """Return set of current ROS2 nodes."""
+        try:
+            out = subprocess.check_output(
+                ["ros2", "node", "list"], encoding="utf-8", stderr=subprocess.DEVNULL
+            )
+            return set(out.strip().splitlines())
+        except Exception:
+            return set()
+
+    def _wait_for_new_nodes(self, old_nodes: set, timeout: int = 20) -> bool:
+        """Wait until new ROS2 nodes appear (indicating launch is running)."""
+        start = time.time()
+        while time.time() - start < timeout:
+            new_nodes = self._get_current_nodes()
+            if len(new_nodes) > len(old_nodes):
+                print("   ✅ 节点启动成功")
+                return True
+            time.sleep(0.5)
+        print("   ❌ 节点启动超时，可能启动失败")
+        return False
+
     def start(self, map_name: Optional[str] = None) -> dict:
-        """Start navigation system with all required nodes."""
+        """Start navigation system with all required nodes (auto-detect success)."""
+
+        # ------ 状态检查 ------
         if self._state not in {"IDLE", "ERROR"}:
             raise RuntimeError("navigation already running")
         
         if map_name:
             self.map_name = map_name
-        
-        # Validate map exists in registry and get PCD file path
+
+        # ------ 地图验证 ------
         map_info = self._validate_and_get_map_info(self.map_name)
         if not map_info["valid"]:
             error_msg = f"❌ 地图验证失败: {map_info['error']}"
@@ -190,43 +214,48 @@ class NavigationController:
                 "map_name": self.map_name,
                 "map_info": map_info
             }
-        
-        # Print map information
+
+        # 打印地图信息
         print(f"✅ 地图验证成功:")
         print(f"   地图名称: {self.map_name}")
         print(f"   PCD地图: {map_info['pcd_file']}")
         print(f"   2D地图: {map_info['pgm_file']}")
         print(f"   描述: {map_info['description']}")
-        
-        # Update localizer config before starting
+
+        # ------ 更新 localizer 配置 ------
         self._update_localizer_config(self.map_name)
-        
+
         self._state = "STARTING"
         self._processes.clear()
-        
-        # Navigation launch sequence with GICP Localizer
+
+        # ------ 启动序列 ------
         launch_sequence = [
-            # 1. Livox LiDAR driver
             ["ros2", "launch", "livox_ros_driver2", "msg_MID360_launch.py"],
-            # 2. Convert Livox to PointCloud2
             ["ros2", "launch", "tron_navigation", "livox_to_pointcloud2_launch.py"],
-            # 3. DLIO odometry (provides odom -> base_link)
             ["ros2", "launch", "direct_lidar_inertial_odometry", "dlio.launch.py", "rviz:=false"],
-            # 4. GICP Localizer (provides map -> odom using 3D point cloud matching)
             ["ros2", "launch", "localizer", "localizer_launch.py"],
-            # 5. PointCloud to LaserScan (for Nav2 obstacle avoidance)
             ["ros2", "launch", "pointcloud_to_laserscan", "pointcloud_to_laserscan_launch.py"],
-            # 6. Nav2 navigation stack with map server
-            ["ros2", "launch", "tron_navigation", "tron_bringup.launch.py", f"map:={self.workdir}/src/tron_nav/tron_navigation/maps/{self.map_name}.yaml", "use_sim_time:=false"],
-            # 7. cmd_vel_bridge for sending velocity commands to robot via WebSocket
+            ["ros2", "launch", "tron_navigation", "tron_bringup.launch.py",
+                f"map:={self.workdir}/src/tron_nav/tron_navigation/maps/{self.map_name}.yaml",
+                "use_sim_time:=false"],
             ["ros2", "launch", "cmd_bridge", "cmd_vel_bridge.launch.py"],
-            # 8. PID parking controller for precise goal positioning (publishes /pid_parking_status)
             ["ros2", "launch", "pid_parking", "pid_parking.launch.py"],
-            # 9. tron_commander_pid for robot position and navigation control (monitors Nav2 + PID parking status)
             ["python3", f"{self.workdir}/tools/tron_commander_pid.py"],
+            # ["python3", f"{self.workdir}/tools/pointcloud_filter.py"],
         ]
-        
+
+        # -------------------------------------
+        # 关键增强：逐个启动 + 自动检测 ROS 节点是否成功启动
+        # -------------------------------------
+
         for idx, command in enumerate(launch_sequence):
+
+            # 1. 获取启动前的 ROS 节点列表
+            old_nodes = self._get_current_nodes()
+            print(f"\n⏳ 当前 ROS 节点数: {len(old_nodes)}，准备启动第 {idx} 个节点...")
+            print("   命令:", " ".join(command))
+
+            # 2. 启动进程
             bash_cmd = [
                 "bash", "-c",
                 f"export FASTRTPS_DEFAULT_PROFILES_FILE=/home/guest/.config/fastdds/fastdds.xml && "
@@ -234,6 +263,7 @@ class NavigationController:
                 f"source {self.workdir}/install/setup.bash && "
                 f"{' '.join(command)}"
             ]
+            
             log_file = f"/tmp/navigation_{idx}_{command[2] if len(command) > 2 else 'commander'}.log"
             with open(log_file, "w") as log:
                 proc = subprocess.Popen(
@@ -242,18 +272,41 @@ class NavigationController:
                     stdout=log,
                     stderr=subprocess.STDOUT
                 )
+
             self._processes.append(proc)
-            print(f"Started navigation process {idx}: {' '.join(command)} (PID: {proc.pid}, log: {log_file})")
-            time.sleep(3)  # Give each process time to start
-        
+            print(f"   ✔ 已启动进程 PID={proc.pid}, 日志文件: {log_file}")
+
+            # 3. 自动检测该节点是否正确启动
+            print(f"   ⏳ 等待节点启动中...")
+            ok = self._wait_for_new_nodes(old_nodes, timeout=25)
+
+            if not ok:
+                print(f"❌ 第 {idx} 个 launch 启动失败，正在终止所有进程...")
+                self.stop()
+                self._state = "ERROR"
+                return {
+                    "status": "ERROR",
+                    "error": f"Launch {command} failed to start",
+                    "failed_launch": command,
+                    "map_name": self.map_name,
+                }
+
+            print(f"   ✅ 第 {idx} 个 launch 启动成功！")
+
+            # 可选：给每个进程 1s 缓冲
+            time.sleep(1)
+
+        # ------ 完成 ------
         self._state = "RUNNING"
         self._start_time = time.time()
+
         return {
             "status": self._state,
             "pids": [p.pid for p in self._processes],
             "map_name": self.map_name,
             "map_info": map_info
         }
+
     
     def stop(self) -> dict:
         """Stop all navigation processes."""
